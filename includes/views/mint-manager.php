@@ -114,6 +114,7 @@ if ($editMode && $editData) {
                 <th>NFT Image</th>
                 <td>
                     <input type="hidden" name="cardanonftimageid" id="cardanonftimageid" value="<?php echo esc_attr($editMode && $editData ? $editData['image_id'] : ''); ?>" />
+                    <input type="hidden" name="cardanonftimagemime" id="cardanonftimagemime" value="<?php echo esc_attr($editMode && $editData && !empty($editData['image_id']) ? (get_post_mime_type($editData['image_id']) ?: '') : ''); ?>" />
                     <input type="hidden" name="ipfs_cid" id="ipfs_cid" value="<?php echo esc_attr($editMode && $editData ? ($editData['ipfs_cid'] ?? '') : ''); ?>" />
                     <button type="button" id="upload-image-btn" class="button">Select Image</button>
 
@@ -124,9 +125,17 @@ if ($editMode && $editData) {
 
                     <div id="image-preview" style="margin-top: 10px;">
                         <?php if ($editMode && $editData && !empty($editData['image_id'])): ?>
-                            <?php $image_url = wp_get_attachment_url($editData['image_id']); ?>
+                            <?php
+                            $image_url = wp_get_attachment_url($editData['image_id']);
+                            $image_mime = get_post_mime_type($editData['image_id']);
+                            $is_video = $image_mime && strpos($image_mime, 'video/') === 0;
+                            ?>
                             <?php if ($image_url): ?>
-                                <img src="<?php echo esc_url($image_url); ?>" style="max-width: 150px; max-height: 150px; border-radius: 4px;" />
+                                <?php if ($is_video): ?>
+                                    <video src="<?php echo esc_url($image_url); ?>" controls muted playsinline style="max-width: 150px; max-height: 150px; border-radius: 4px;"></video>
+                                <?php else: ?>
+                                    <img src="<?php echo esc_url($image_url); ?>" style="max-width: 150px; max-height: 150px; border-radius: 4px;" />
+                                <?php endif; ?>
                             <?php endif; ?>
                         <?php endif; ?>
                     </div>
@@ -176,9 +185,17 @@ if ($editMode && $editData) {
                         <!-- Read-only display for child variants -->
                         <div id="collection-image-preview" style="margin-top: 10px;">
                             <?php if (!empty($editData['collection_image_id'])): ?>
-                                <?php $collection_image_url = wp_get_attachment_url($editData['collection_image_id']); ?>
+                                <?php
+                                $collection_image_url = wp_get_attachment_url($editData['collection_image_id']);
+                                $collection_image_mime = get_post_mime_type($editData['collection_image_id']);
+                                $collection_is_video = $collection_image_mime && strpos($collection_image_mime, 'video/') === 0;
+                                ?>
                                 <?php if ($collection_image_url): ?>
-                                    <img src="<?php echo esc_url($collection_image_url); ?>" style="max-width: 150px; max-height: 150px; border-radius: 4px; border: 2px solid #2DB0B8;" />
+                                    <?php if ($collection_is_video): ?>
+                                        <video src="<?php echo esc_url($collection_image_url); ?>" controls muted playsinline style="max-width: 150px; max-height: 150px; border-radius: 4px; border: 2px solid #2DB0B8;"></video>
+                                    <?php else: ?>
+                                        <img src="<?php echo esc_url($collection_image_url); ?>" style="max-width: 150px; max-height: 150px; border-radius: 4px; border: 2px solid #2DB0B8;" />
+                                    <?php endif; ?>
                                 <?php else: ?>
                                     <p style="color: #666;">No collection image set</p>
                                 <?php endif; ?>
@@ -196,9 +213,17 @@ if ($editMode && $editData) {
                         <button type="button" id="upload-collection-image-btn" class="button">Select Collection Image</button>
                         <div id="collection-image-preview" style="margin-top: 10px;">
                             <?php if ($editMode && $editData && !empty($editData['collection_image_id'])): ?>
-                                <?php $collection_image_url = wp_get_attachment_url($editData['collection_image_id']); ?>
+                                <?php
+                                $collection_image_url = wp_get_attachment_url($editData['collection_image_id']);
+                                $collection_image_mime = get_post_mime_type($editData['collection_image_id']);
+                                $collection_is_video = $collection_image_mime && strpos($collection_image_mime, 'video/') === 0;
+                                ?>
                                 <?php if ($collection_image_url): ?>
-                                    <img src="<?php echo esc_url($collection_image_url); ?>" style="max-width: 150px; max-height: 150px; border-radius: 4px;" />
+                                    <?php if ($collection_is_video): ?>
+                                        <video src="<?php echo esc_url($collection_image_url); ?>" controls muted playsinline style="max-width: 150px; max-height: 150px; border-radius: 4px;"></video>
+                                    <?php else: ?>
+                                        <img src="<?php echo esc_url($collection_image_url); ?>" style="max-width: 150px; max-height: 150px; border-radius: 4px;" />
+                                    <?php endif; ?>
                                 <?php endif; ?>
                             <?php endif; ?>
                         </div>
@@ -626,12 +651,23 @@ jQuery(document).ready(function($) {
         mediaUploader.on('select', function() {
             var attachment = mediaUploader.state().get('selection').first().toJSON();
             $('#cardanonftimageid').val(attachment.id);
-            $('#image-preview').html('<img src="' + attachment.url + '" style="max-width: 150px; max-height: 150px; border-radius: 4px;" />');
+            $('#cardanonftimagemime').val(attachment.mime || '');
 
-            // Enable "Pin to IPFS" button if Pinata is enabled
+            var isVideo = attachment.type === 'video' || (attachment.mime && attachment.mime.indexOf('video/') === 0);
+            var previewHtml = isVideo
+                ? '<video src="' + attachment.url + '" controls muted playsinline style="max-width: 150px; max-height: 150px; border-radius: 4px;"></video>'
+                : '<img src="' + attachment.url + '" style="max-width: 150px; max-height: 150px; border-radius: 4px;" />';
+            $('#image-preview').html(previewHtml);
+
+            // Pin to IPFS is image-only — videos are served from the WordPress CDN
             if ($('#pin-to-ipfs-btn').length) {
-                $('#pin-to-ipfs-btn').prop('disabled', false).css('background', '#2DB0B8').css('border-color', '#2DB0B8');
-                $('#pin-status').html('');
+                if (isVideo) {
+                    $('#pin-to-ipfs-btn').prop('disabled', true).css('background', '#9ca3af').css('border-color', '#9ca3af');
+                    $('#pin-status').html('<span style="color: #6b7280; font-size: 12px;">Videos are served from the WordPress CDN — IPFS pinning is not required.</span>');
+                } else {
+                    $('#pin-to-ipfs-btn').prop('disabled', false).css('background', '#2DB0B8').css('border-color', '#2DB0B8');
+                    $('#pin-status').html('');
+                }
             }
         });
 
@@ -806,7 +842,12 @@ jQuery(document).ready(function($) {
         mediaUploader.on('select', function() {
             var attachment = mediaUploader.state().get('selection').first().toJSON();
             $('#cardanonftcollectionimageid').val(attachment.id);
-            $('#collection-image-preview').html('<img src="' + attachment.url + '" style="max-width: 150px; max-height: 150px; border-radius: 4px;" />');
+
+            var isVideo = attachment.type === 'video' || (attachment.mime && attachment.mime.indexOf('video/') === 0);
+            var previewHtml = isVideo
+                ? '<video src="' + attachment.url + '" controls muted playsinline style="max-width: 150px; max-height: 150px; border-radius: 4px;"></video>'
+                : '<img src="' + attachment.url + '" style="max-width: 150px; max-height: 150px; border-radius: 4px;" />';
+            $('#collection-image-preview').html(previewHtml);
         });
 
         mediaUploader.open();
@@ -1220,8 +1261,8 @@ function buildMetadataPreview() {
         }
     });
 
-    // Determine media type (default to image/png)
-    const mediaType = 'image/png';
+    // Determine media type from the uploaded WP attachment (falls back to image/png)
+    const mediaType = jQuery('#cardanonftimagemime').val() || 'image/png';
 
     // Build the asset name (use from metadata 'name' or fallback to title)
     const assetName = customMetadata.name || title;

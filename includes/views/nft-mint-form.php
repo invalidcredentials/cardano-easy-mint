@@ -16,11 +16,13 @@ $mints_allowed = $mint ? intval($mint['mintsallowedperwallet'] ?? 0) : 0;
 
 // Get image URL - prefer collection_image_id (mystery box) over actual NFT image
 $nft_image_url = '';
+$nft_image_mime = '';
 if ($mint && !empty($mint['collection_image_id'])) {
     // Show collection/mystery box image if available
     $collection_image_url = wp_get_attachment_url($mint['collection_image_id']);
     if ($collection_image_url) {
         $nft_image_url = $collection_image_url;
+        $nft_image_mime = get_post_mime_type($mint['collection_image_id']) ?: '';
     }
 }
 // Fall back to actual NFT image if no collection image
@@ -37,6 +39,7 @@ if (empty($nft_image_url) && $mint) {
         $image_url = wp_get_attachment_url($mint['image_id']);
         if ($image_url) {
             $nft_image_url = $image_url;
+            $nft_image_mime = get_post_mime_type($mint['image_id']) ?: '';
         }
     }
 }
@@ -44,6 +47,8 @@ if (empty($nft_image_url) && $mint) {
 if (empty($nft_image_url)) {
     $nft_image_url = $metadata_url;
 }
+
+$nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
 ?>
 
 <div id="cardano-nft-mint-widget" class="cardano-nft-mint">
@@ -117,7 +122,11 @@ if (empty($nft_image_url)) {
                     <div class="mint-review">
                         <!-- Centered NFT Image -->
                         <div class="nft-image-display">
-                            <img id="review-nft-image" src="<?php echo esc_url($nft_image_url ?: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDEyMCAxMjAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMjAiIGhlaWdodD0iMTIwIiBmaWxsPSIjRjhGOUZBIi8+CjxyZWN0IHg9IjEwIiB5PSIxMCIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIHN0cm9rZT0iI0RFRTJFNiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIi8+Cjx0ZXh0IHg9IjYwIiB5PSI2NSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNkM3NTdEIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5ORlQ8L3RleHQ+Cjx0ZXh0IHg9IjYwIiB5PSI4NSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjEyIiBmaWxsPSIjNkM3NTdEIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5JbWFnZTwvdGV4dD4KPC9zdmc+'); ?>" alt="<?php echo esc_attr($nft_name); ?>">
+                            <?php if ($nft_is_video && !empty($nft_image_url)): ?>
+                                <video id="review-nft-image" src="<?php echo esc_url($nft_image_url); ?>" controls autoplay muted loop playsinline></video>
+                            <?php else: ?>
+                                <img id="review-nft-image" src="<?php echo esc_url($nft_image_url ?: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDEyMCAxMjAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMjAiIGhlaWdodD0iMTIwIiBmaWxsPSIjRjhGOUZBIi8+CjxyZWN0IHg9IjEwIiB5PSIxMCIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIHN0cm9rZT0iI0RFRTJFNiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIi8+Cjx0ZXh0IHg9IjYwIiB5PSI2NSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNkM3NTdEIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5ORlQ8L3RleHQ+Cjx0ZXh0IHg9IjYwIiB5PSI4NSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjEyIiBmaWxsPSIjNkM3NTdEIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5JbWFnZTwvdGV4dD4KPC9zdmc+'); ?>" alt="<?php echo esc_attr($nft_name); ?>">
+                            <?php endif; ?>
                             <h4 class="nft-name" id="review-nft-name"><?php echo esc_html($nft_name); ?></h4>
                         </div>
 
@@ -248,3 +257,22 @@ if (empty($nft_image_url)) {
 </div>
 
 <!-- Assets are enqueued by the plugin -->
+<script>
+/*
+ * Portal the mint modal to <body> so it escapes any ancestor stacking context
+ * (transform/filter/will-change on a parent section traps position:fixed z-index).
+ */
+(function () {
+    function portal() {
+        var modal = document.getElementById('cardano-nft-mint-modal');
+        if (modal && modal.parentNode !== document.body) {
+            document.body.appendChild(modal);
+        }
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', portal);
+    } else {
+        portal();
+    }
+})();
+</script>

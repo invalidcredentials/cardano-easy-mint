@@ -181,25 +181,23 @@ class NFTCheckoutController {
 
         $merchant_address = sanitize_text_field($_POST['merchant_address'] ?? '');
         $customer_address = sanitize_text_field($_POST['customer_address'] ?? '');
-        $usd_price = floatval($_POST['usd_price'] ?? 0);
         $policy_id = sanitize_text_field($_POST['policy_id'] ?? '');
         $asset_id = intval($_POST['asset_id'] ?? 0);
+        $posted_usd_price = floatval($_POST['usd_price'] ?? 0); // Kept only for debug comparison.
 
         // Debug logging
         error_log("=== MINT TRANSACTION DEBUG ===");
         error_log("merchant_address: " . $merchant_address);
         error_log("customer_address: " . $customer_address);
-        error_log("usd_price: " . $usd_price);
-        error_log("usd_price (raw from POST): " . ($_POST['usd_price'] ?? 'NOT SET'));
+        error_log("posted usd_price (ignored, server uses DB price): " . $posted_usd_price);
         error_log("policy_id: " . $policy_id);
         error_log("asset_id: " . $asset_id);
 
-        // Validate inputs
-        if (!$merchant_address || !$customer_address || $usd_price <= 0 || !$policy_id || $asset_id <= 0) {
+        // Validate inputs that must come from the client.
+        if (!$merchant_address || !$customer_address || !$policy_id || $asset_id <= 0) {
             error_log("VALIDATION FAILED:");
             error_log("merchant_address valid: " . ($merchant_address ? 'YES' : 'NO'));
             error_log("customer_address valid: " . ($customer_address ? 'YES' : 'NO'));
-            error_log("usd_price > 0: " . ($usd_price > 0 ? 'YES' : 'NO'));
             error_log("policy_id valid: " . ($policy_id ? 'YES' : 'NO'));
             error_log("asset_id > 0: " . ($asset_id > 0 ? 'YES' : 'NO'));
             wp_send_json_error(['message' => 'Missing or invalid parameters']);
@@ -214,6 +212,18 @@ class NFTCheckoutController {
             error_log("ERROR: No mint data found for asset ID: " . $asset_id);
             wp_send_json_error(['message' => 'Asset not found']);
         }
+
+        // Authoritative USD price comes from the mint record, NOT the client.
+        // The live ADA conversion happens inside AnvilAPI::buildMintTransaction via getAdaPrice().
+        $usd_price = floatval($mint_data['price'] ?? 0);
+        if ($usd_price <= 0) {
+            error_log("ERROR: Mint record has no USD price configured (asset_id=" . $asset_id . ")");
+            wp_send_json_error(['message' => 'Mint is not priced. Please contact the site administrator.']);
+        }
+        if (abs($usd_price - $posted_usd_price) > 0.01) {
+            error_log("NOTICE: Client-posted usd_price (" . $posted_usd_price . ") does not match DB price (" . $usd_price . "). Using DB price.");
+        }
+        error_log("Using authoritative usd_price from DB: " . $usd_price);
 
         // Check per-wallet mint limits BEFORE building transaction
         $mints_allowed = intval($mint_data['mintsallowedperwallet'] ?? 0);
@@ -251,8 +261,9 @@ class NFTCheckoutController {
 
         // DEBUG: Add price info and mint limits info to response for frontend debugging
         $response['debug_price_info'] = array(
-            'usd_price_received' => $usd_price,
-            'raw_post_price' => $_POST['usd_price'] ?? 'NOT SET'
+            'usd_price_used'      => $usd_price,        // From DB (authoritative).
+            'usd_price_posted'    => $posted_usd_price, // From client (ignored).
+            'ada_usd_rate_cached' => (float) AnvilAPI::getAdaPrice(),
         );
 
         $response['debug_mint_limits'] = array(

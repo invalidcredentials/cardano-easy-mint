@@ -326,6 +326,7 @@ foreach ($mints as $mint) {
                                     <td>
                                         <?php
                                         $display_image_url = null;
+                                        $display_image_mime = null;
                                         $border_color = '#2271b1'; // Default blue for WordPress uploads
 
                                         // Priority: Manual IPFS > Pinata IPFS > WordPress
@@ -337,11 +338,18 @@ foreach ($mints as $mint) {
                                             $border_color = '#10b981'; // Green for Pinata
                                         } elseif (!empty($asset['image_id'])) {
                                             $display_image_url = wp_get_attachment_url($asset['image_id']);
+                                            $display_image_mime = get_post_mime_type($asset['image_id']);
                                             $border_color = '#2271b1'; // Blue for WordPress
                                         }
 
+                                        $is_video = $display_image_mime && strpos($display_image_mime, 'video/') === 0;
+
                                         if ($display_image_url) {
-                                            echo '<img src="' . esc_url($display_image_url) . '" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; border: 2px solid ' . esc_attr($border_color) . ';" alt="' . esc_attr($asset['asset_name'] ?: $asset['title']) . '" />';
+                                            if ($is_video) {
+                                                echo '<video src="' . esc_url($display_image_url) . '" muted loop playsinline preload="metadata" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; border: 2px solid ' . esc_attr($border_color) . ';" onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0;"></video>';
+                                            } else {
+                                                echo '<img src="' . esc_url($display_image_url) . '" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; border: 2px solid ' . esc_attr($border_color) . ';" alt="' . esc_attr($asset['asset_name'] ?: $asset['title']) . '" />';
+                                            }
                                         } else {
                                             echo '<div style="width: 70px; height: 70px; background: #f1f1f1; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 11px;">No Image</div>';
                                         }
@@ -351,9 +359,15 @@ foreach ($mints as $mint) {
                                         <?php
                                         if (!empty($asset['collection_image_id'])) {
                                             $collection_image_url = wp_get_attachment_url($asset['collection_image_id']);
+                                            $collection_image_mime = get_post_mime_type($asset['collection_image_id']);
+                                            $collection_is_video = $collection_image_mime && strpos($collection_image_mime, 'video/') === 0;
                                             if ($collection_image_url) {
                                                 echo '<div style="position: relative;">';
-                                                echo '<img src="' . esc_url($collection_image_url) . '" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; border: 2px solid #2DB0B8;" alt="Collection Image" />';
+                                                if ($collection_is_video) {
+                                                    echo '<video src="' . esc_url($collection_image_url) . '" muted loop playsinline preload="metadata" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; border: 2px solid #2DB0B8;" onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0;"></video>';
+                                                } else {
+                                                    echo '<img src="' . esc_url($collection_image_url) . '" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; border: 2px solid #2DB0B8;" alt="Collection Image" />';
+                                                }
                                                 echo '<div style="position: absolute; top: -5px; right: -5px; background: #2DB0B8; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;" title="Mystery Box">🎁</div>';
                                                 echo '</div>';
                                             } else {

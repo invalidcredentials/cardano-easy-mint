@@ -155,6 +155,7 @@ class AnvilAPI {
         // Get mint-specific metadata if available
         $nft_name = $asset_name_raw;
         $nft_image = '';
+        $nft_media_type = 'image/png';
         $nft_description = 'NFT minted via ' . get_bloginfo('name');
         $nft_metadata_attributes = array();  // Additional attributes from metadata builder
         $policy_script = null;
@@ -181,6 +182,15 @@ class AnvilAPI {
                 }
             }
 
+            // Resolve mediaType from the underlying WP attachment when available.
+            // Videos are served from the WP CDN, so the attachment MIME is the source of truth.
+            if (isset($mint_data['image_id']) && $mint_data['image_id']) {
+                $attachment_mime = get_post_mime_type($mint_data['image_id']);
+                if ($attachment_mime) {
+                    $nft_media_type = $attachment_mime;
+                }
+            }
+
             // Parse NFT metadata from metadata builder
             if (isset($mint_data['nft_metadata']) && !empty($mint_data['nft_metadata'])) {
                 $user_metadata = json_decode($mint_data['nft_metadata'], true);
@@ -197,6 +207,10 @@ class AnvilAPI {
                     if (isset($user_metadata['image']) && empty($nft_image)) {
                         // Only use metadata image if no WordPress media library image
                         $nft_image = $user_metadata['image'];
+                    }
+                    if (isset($user_metadata['mediaType']) && !empty($user_metadata['mediaType'])) {
+                        // Explicit user override wins over attachment detection
+                        $nft_media_type = $user_metadata['mediaType'];
                     }
 
                     // Collect any additional attributes (not name, description, image, mediaType)
@@ -230,7 +244,7 @@ class AnvilAPI {
             'name' => $nft_name,
             'image' => $nft_image,
             'description' => $nft_description,
-            'mediaType' => 'image/png'
+            'mediaType' => $nft_media_type
         );
 
         // Add any additional user-defined metadata attributes
@@ -243,7 +257,7 @@ class AnvilAPI {
             $cip25_metadata['files'] = array(
                 array(
                     'name' => $nft_name,
-                    'mediaType' => 'image/png',
+                    'mediaType' => $nft_media_type,
                     'src' => $nft_image
                 )
             );

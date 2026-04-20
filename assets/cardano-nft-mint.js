@@ -703,48 +703,153 @@
             }
         });
 
-        // Connect button — show available wallets and connect
-        connectBtn.addEventListener('click', async function() {
-            console.log('Wallet connect button clicked');
+        // Inject wallet-picker styles once
+        if (!document.getElementById('cardano-mint-picker-styles')) {
+            var pickerStyles = document.createElement('style');
+            pickerStyles.id = 'cardano-mint-picker-styles';
+            pickerStyles.textContent = [
+                '.cm-wallet-picker { margin-top: 12px; }',
+                '.cm-wallet-picker-title { font-size: 13px; color: #6b7280; margin: 0 0 10px; }',
+                '.cm-wallet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }',
+                '.cm-wallet-card { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 10px; background: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px; cursor: pointer; transition: all .15s ease; font: inherit; color: inherit; }',
+                '.cm-wallet-card:hover { border-color: #2DB0B8; background: #fff; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,.06); }',
+                '.cm-wallet-card:disabled { opacity: .6; cursor: wait; }',
+                '.cm-wallet-card img { width: 36px; height: 36px; object-fit: contain; }',
+                '.cm-wallet-card-fallback { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #2DB0B8; background: #e6fafb; border-radius: 50%; }',
+                '.cm-wallet-card-name { font-size: 13px; font-weight: 600; color: #1f2937; text-transform: capitalize; }',
+                '.cm-wallet-picker-cancel { margin-top: 12px; background: none; border: none; color: #6b7280; font-size: 12px; text-decoration: underline; cursor: pointer; padding: 4px 0; }',
+                '.cm-wallet-picker-empty { font-size: 13px; color: #dc3545; background: #fff5f5; padding: 10px 12px; border-radius: 6px; border: 1px solid #fecaca; }',
+            ].join('\n');
+            document.head.appendChild(pickerStyles);
+        }
+
+        function renderWalletPicker(wallets) {
+            var existing = document.getElementById('cm-wallet-picker');
+            if (existing) existing.remove();
+
+            var picker = document.createElement('div');
+            picker.id = 'cm-wallet-picker';
+            picker.className = 'cm-wallet-picker';
+
+            var title = document.createElement('p');
+            title.className = 'cm-wallet-picker-title';
+            title.textContent = 'Choose a wallet to connect:';
+            picker.appendChild(title);
+
+            var grid = document.createElement('div');
+            grid.className = 'cm-wallet-grid';
+
+            wallets.forEach(function (w) {
+                var card = document.createElement('button');
+                card.type = 'button';
+                card.className = 'cm-wallet-card';
+                card.setAttribute('data-wallet-key', w.key);
+
+                if (w.icon) {
+                    var img = document.createElement('img');
+                    img.src = w.icon;
+                    img.alt = w.name;
+                    card.appendChild(img);
+                } else {
+                    var fallback = document.createElement('div');
+                    fallback.className = 'cm-wallet-card-fallback';
+                    fallback.textContent = (w.name || w.key).charAt(0).toUpperCase();
+                    card.appendChild(fallback);
+                }
+
+                var name = document.createElement('span');
+                name.className = 'cm-wallet-card-name';
+                name.textContent = w.name || w.key;
+                card.appendChild(name);
+
+                card.addEventListener('click', function () {
+                    connectToWallet(w.key, w.name, card);
+                });
+
+                grid.appendChild(card);
+            });
+
+            picker.appendChild(grid);
+
+            var cancel = document.createElement('button');
+            cancel.type = 'button';
+            cancel.className = 'cm-wallet-picker-cancel';
+            cancel.textContent = 'Cancel';
+            cancel.addEventListener('click', function () {
+                picker.remove();
+                connectBtn.textContent = 'Connect Wallet';
+                connectBtn.disabled = false;
+                connectBtn.style.display = '';
+            });
+            picker.appendChild(cancel);
+
+            // Insert picker right after the connect button
+            connectBtn.parentNode.insertBefore(picker, connectBtn.nextSibling);
+        }
+
+        async function connectToWallet(key, displayName, cardEl) {
+            if (cardEl) {
+                cardEl.disabled = true;
+                var nameEl = cardEl.querySelector('.cm-wallet-card-name');
+                if (nameEl) nameEl.textContent = 'Connecting…';
+            }
             try {
-                connectBtn.textContent = 'Connecting...';
-                connectBtn.disabled = true;
-
-                var installedWallets = CardanoMintWallet.getInstalledWallets();
-                console.log('Installed wallets:', installedWallets);
-
-                if (installedWallets.length === 0) {
-                    throw new Error('No Cardano wallets found. Please install a wallet extension (Eternl, Lace, etc.).');
-                }
-
-                // If only one wallet, connect directly. Otherwise use the first available.
-                // TODO: Could show a wallet picker UI here for multiple wallets.
-                var selectedKey = installedWallets[0].key;
-
-                // Check if any wallet is already connected (prefer that one)
-                for (var w = 0; w < installedWallets.length; w++) {
-                    try {
-                        if (window.cardano[installedWallets[w].key].isConnected &&
-                            await window.cardano[installedWallets[w].key].isConnected()) {
-                            selectedKey = installedWallets[w].key;
-                            console.log('Found already-connected wallet:', installedWallets[w].name);
-                            break;
-                        }
-                    } catch(e) {}
-                }
-
-                console.log('Connecting to:', selectedKey);
-                await CardanoMintWallet.connect(selectedKey);
-                // UI updates happen automatically via the subscribe callback above
-
+                console.log('Connecting to:', key);
+                await CardanoMintWallet.connect(key);
+                var picker = document.getElementById('cm-wallet-picker');
+                if (picker) picker.remove();
+                // UI updates happen via the subscribe callback above
             } catch (error) {
                 console.error('Wallet connection failed:', error);
-                alert('Wallet connection failed: ' + error.message);
-                if (connectBtn) {
+                alert('Could not connect to ' + (displayName || key) + ': ' + error.message);
+                if (cardEl) {
+                    cardEl.disabled = false;
+                    var nameEl2 = cardEl.querySelector('.cm-wallet-card-name');
+                    if (nameEl2) nameEl2.textContent = displayName || key;
+                }
+            }
+        }
+
+        // Connect button — show wallet picker grid
+        connectBtn.addEventListener('click', async function () {
+            console.log('Wallet connect button clicked');
+
+            var installedWallets = CardanoMintWallet.getInstalledWallets();
+            console.log('Installed wallets:', installedWallets);
+
+            // Remove any stale picker
+            var stale = document.getElementById('cm-wallet-picker');
+            if (stale) stale.remove();
+
+            if (installedWallets.length === 0) {
+                var empty = document.createElement('div');
+                empty.id = 'cm-wallet-picker';
+                empty.className = 'cm-wallet-picker';
+                var msg = document.createElement('div');
+                msg.className = 'cm-wallet-picker-empty';
+                msg.textContent = 'No Cardano wallets detected. Install Eternl, Lace, Nami, Flint, Typhon, Begin, Vespr, or another CIP-30 wallet extension, then reload the page.';
+                empty.appendChild(msg);
+                connectBtn.parentNode.insertBefore(empty, connectBtn.nextSibling);
+                return;
+            }
+
+            // If exactly one wallet is installed, skip the picker — nothing to choose from.
+            if (installedWallets.length === 1) {
+                connectBtn.textContent = 'Connecting…';
+                connectBtn.disabled = true;
+                try {
+                    await CardanoMintWallet.connect(installedWallets[0].key);
+                } catch (error) {
+                    console.error('Wallet connection failed:', error);
+                    alert('Wallet connection failed: ' + error.message);
                     connectBtn.textContent = 'Connect Wallet';
                     connectBtn.disabled = false;
                 }
+                return;
             }
+
+            // Multiple wallets — render the grid picker
+            renderWalletPicker(installedWallets);
         });
 
 
