@@ -213,8 +213,16 @@ class AnvilAPI {
                         $nft_media_type = $user_metadata['mediaType'];
                     }
 
-                    // Collect any additional attributes (not name, description, image, mediaType)
-                    $reserved_keys = array('name', 'description', 'image', 'mediaType', 'files');
+                    // Optional preview image for video/audio assets. Lets the
+                    // mint operator supply a still-frame PNG/GIF that wallets
+                    // and marketplaces use for the thumbnail, while the video
+                    // itself lives in files[].
+                    $nft_preview_image      = isset($user_metadata['previewImage'])     ? (string) $user_metadata['previewImage']     : '';
+                    $nft_preview_media_type = isset($user_metadata['previewMediaType']) ? (string) $user_metadata['previewMediaType'] : 'image/png';
+
+                    // Collect any additional attributes (skip the reserved CIP-25 keys
+                    // and our preview overrides — we handle those explicitly below)
+                    $reserved_keys = array('name', 'description', 'image', 'mediaType', 'files', 'previewImage', 'previewMediaType');
                     foreach ($user_metadata as $key => $value) {
                         if (!in_array($key, $reserved_keys)) {
                             $nft_metadata_attributes[$key] = $value;
@@ -239,15 +247,24 @@ class AnvilAPI {
         }
 
         // Build CIP-25 metadata for the mint object.
-        // For VIDEO (or audio) assets the top-level `image` + `mediaType`
-        // pair conflicts with the real source declared in `files[]` —
-        // marketplaces and Anvil reject the duplicate. So we drop both
-        // top-level fields and let `files[]` be the single source of
-        // truth for non-image assets.
+        //
+        // For an IMAGE asset: top-level image + mediaType points at the
+        // asset itself, files[] mirrors it for explorer compatibility.
+        //
+        // For a VIDEO/AUDIO asset: the asset can't be the top-level
+        // image (wallets only render PNG/JPG/GIF for the thumbnail).
+        // If the operator supplied a `previewImage` (+ optional
+        // `previewMediaType`) in the metadata builder, we use it as
+        // the top-level thumbnail and let files[0] carry the actual
+        // video. Without a preview supplied we omit the top-level pair
+        // entirely — the mint will succeed but wallets won't show a
+        // preview thumbnail.
         $is_av_asset = (
             strpos($nft_media_type, 'video/') === 0 ||
             strpos($nft_media_type, 'audio/') === 0
         );
+        $preview_image      = isset($nft_preview_image) ? $nft_preview_image : '';
+        $preview_media_type = isset($nft_preview_media_type) ? $nft_preview_media_type : 'image/png';
 
         $cip25_metadata = array(
             'name'        => $nft_name,
@@ -256,6 +273,9 @@ class AnvilAPI {
         if (!$is_av_asset) {
             $cip25_metadata['image']     = $nft_image;
             $cip25_metadata['mediaType'] = $nft_media_type;
+        } elseif ($preview_image !== '') {
+            $cip25_metadata['image']     = $preview_image;
+            $cip25_metadata['mediaType'] = $preview_media_type;
         }
 
         // Add any additional user-defined metadata attributes
