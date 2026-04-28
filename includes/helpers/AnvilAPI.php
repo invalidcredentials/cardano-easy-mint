@@ -238,27 +238,39 @@ class AnvilAPI {
             }
         }
 
-        // Build CIP-25 metadata for the mint object
-        // Anvil API expects metadata fields directly in the mint array with version: "cip25"
-        $cip25_metadata = array(
-            'name' => $nft_name,
-            'image' => $nft_image,
-            'description' => $nft_description,
-            'mediaType' => $nft_media_type
+        // Build CIP-25 metadata for the mint object.
+        // For VIDEO (or audio) assets the top-level `image` + `mediaType`
+        // pair conflicts with the real source declared in `files[]` —
+        // marketplaces and Anvil reject the duplicate. So we drop both
+        // top-level fields and let `files[]` be the single source of
+        // truth for non-image assets.
+        $is_av_asset = (
+            strpos($nft_media_type, 'video/') === 0 ||
+            strpos($nft_media_type, 'audio/') === 0
         );
+
+        $cip25_metadata = array(
+            'name'        => $nft_name,
+            'description' => $nft_description,
+        );
+        if (!$is_av_asset) {
+            $cip25_metadata['image']     = $nft_image;
+            $cip25_metadata['mediaType'] = $nft_media_type;
+        }
 
         // Add any additional user-defined metadata attributes
         foreach ($nft_metadata_attributes as $key => $value) {
             $cip25_metadata[$key] = $value;
         }
 
-        // Add files array for better explorer compatibility
+        // Add files array for explorer compatibility. For video/audio
+        // assets this is the only place the asset is referenced.
         if (!empty($nft_image)) {
             $cip25_metadata['files'] = array(
                 array(
-                    'name' => $nft_name,
+                    'name'      => $nft_name,
                     'mediaType' => $nft_media_type,
-                    'src' => $nft_image
+                    'src'       => $nft_image
                 )
             );
         }
