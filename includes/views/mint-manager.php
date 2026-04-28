@@ -178,6 +178,49 @@ if ($editMode && $editData) {
                     <p class="description" style="margin-top: 10px;">The actual NFT image that will be minted</p>
                 </td>
             </tr>
+
+            <tr>
+                <th>Preview Image <span style="color: #c9a84c; font-weight: 400; font-size: 12px;">(still / GIF for video assets)</span></th>
+                <td>
+                    <input type="hidden" name="cardanonftpreviewimageid" id="cardanonftpreviewimageid" value="<?php echo esc_attr($editMode && $editData ? ($editData['preview_image_id'] ?? '') : ''); ?>" />
+                    <button type="button" id="upload-preview-image-btn" class="button">Select Preview Image</button>
+                    <button type="button" id="clear-preview-image-btn" class="button" style="margin-left: 8px; background: #ef4444; color: white; border-color: #ef4444;">Clear</button>
+
+                    <div id="preview-image-display" style="margin-top: 10px;">
+                        <?php if ($editMode && $editData && !empty($editData['preview_image_id'])): ?>
+                            <?php $preview_url = wp_get_attachment_url($editData['preview_image_id']); ?>
+                            <?php if ($preview_url): ?>
+                                <img src="<?php echo esc_url($preview_url); ?>" style="max-width: 150px; max-height: 150px; border-radius: 4px; border: 2px solid #c9a84c;" />
+                            <?php endif; ?>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- Manual IPFS Hash for preview -->
+                    <div style="margin-top: 15px; padding: 15px; background: #fdf6e3; border: 1px solid #e5d4a3; border-radius: 4px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #78611f;">
+                            Or paste IPFS CIDv0 hash for the preview (if pinned elsewhere):
+                        </label>
+                        <input type="text"
+                               name="preview_ipfs_cid_manual"
+                               id="preview_ipfs_cid_manual"
+                               placeholder="Qm... (still image or GIF only)"
+                               value="<?php echo esc_attr($editMode && $editData ? ($editData['preview_ipfs_cid_manual'] ?? '') : ''); ?>"
+                               size="60"
+                               maxlength="60"
+                               style="padding: 8px; font-family: monospace; font-size: 13px; width: auto;" />
+                        <p id="preview-ipfs-validation" style="margin-top: 8px; margin-bottom: 8px; font-size: 12px; display: none;"></p>
+                        <div id="preview-ipfs-display" style="margin-top: 10px; display: none;">
+                            <img id="preview-ipfs-img" src="" style="max-width: 150px; max-height: 150px; border-radius: 4px; border: 2px solid #c9a84c;" />
+                        </div>
+                    </div>
+
+                    <p class="description" style="margin-top: 10px;">
+                        Optional. <strong>Required for video/audio mints</strong> if you want a thumbnail to render in wallets and marketplaces.
+                        Image only — PNG, JPG, GIF, WebP, SVG. MP4 and other video formats are not accepted here.
+                        <strong>Priority:</strong> Manual IPFS hash &gt; uploaded WordPress media.
+                    </p>
+                </td>
+            </tr>
             <tr id="collection-image-row" style="display: none;">
                 <th>Collection Image <span style="color: #2DB0B8;">(Mystery Box)</span></th>
                 <td>
@@ -637,6 +680,52 @@ jQuery(document).ready(function($) {
     }
 
     // Media library integration for image selection
+    // Preview image (still / GIF) for video & audio mints
+    $('#upload-preview-image-btn').click(function(e) {
+        e.preventDefault();
+        var uploader = wp.media({
+            title: 'Select Preview Image (still or GIF)',
+            button: { text: 'Use this image' },
+            multiple: false,
+            library: { type: ['image'] }   // image only — no mp4/video
+        });
+        uploader.on('select', function() {
+            var att = uploader.state().get('selection').first().toJSON();
+            // Defensive double-check: refuse non-image attachments
+            if (att.type !== 'image') {
+                alert('Preview image must be a still image or GIF. Videos are not accepted here.');
+                return;
+            }
+            $('#cardanonftpreviewimageid').val(att.id);
+            $('#preview-image-display').html(
+                '<img src="' + att.url + '" style="max-width: 150px; max-height: 150px; border-radius: 4px; border: 2px solid #c9a84c;" />'
+            );
+        });
+        uploader.open();
+    });
+    $('#clear-preview-image-btn').click(function(e) {
+        e.preventDefault();
+        $('#cardanonftpreviewimageid').val('');
+        $('#preview-image-display').html('');
+    });
+    // IPFS hash validation for preview field (mirrors the main NFT image one)
+    $('#preview_ipfs_cid_manual').on('input', function() {
+        var hash = $(this).val().trim();
+        var $msg = $('#preview-ipfs-validation');
+        var $box = $('#preview-ipfs-display');
+        var $img = $('#preview-ipfs-img');
+        if (hash === '') { $msg.hide(); $box.hide(); return; }
+        var ok = /^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(hash);
+        if (ok) {
+            $msg.css('color', '#10b981').html('✓ Valid CIDv0 hash').show();
+            $img.attr('src', 'https://ipfs.io/ipfs/' + hash);
+            $box.show();
+        } else {
+            $msg.css('color', '#ef4444').html('✗ Invalid CIDv0 — must start with Qm and be 46 chars').show();
+            $box.hide();
+        }
+    }).trigger('input');
+
     $('#upload-image-btn').click(function(e) {
         e.preventDefault();
 

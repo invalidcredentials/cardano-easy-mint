@@ -40,10 +40,21 @@ function cardanomint_activate() {
     // Run migrations for existing tables (adds new columns if they don't exist)
     CardanoMintPay\Models\MintModel::add_metadata_columns();
     CardanoMintPay\Models\MintModel::add_multi_asset_columns();
+    CardanoMintPay\Models\MintModel::add_preview_image_columns();
 
     // Fix binary permissions on Linux
     cardanomint_fix_binary_permissions();
 }
+
+// One-time migration for preview-image columns (for installs that were
+// active before these columns existed).
+add_action('admin_init', function() {
+    if (get_option('cardano_mint_preview_image_migration_run') !== '1') {
+        CardanoMintPay\Models\MintModel::add_preview_image_columns();
+        update_option('cardano_mint_preview_image_migration_run', '1');
+        error_log('Cardano Mint: Preview image columns migration completed');
+    }
+});
 
 /**
  * Ensure Cardano CLI binaries have execute permissions on Linux
@@ -525,6 +536,8 @@ function cardanomint_mint_manager_page() {
             'royaltyaddress' => sanitize_text_field($_POST['cardanonftroyaltyaddress'] ?? ''),
             'image_id' => isset($_POST['cardanonftimageid']) && !empty($_POST['cardanonftimageid']) ? intval($_POST['cardanonftimageid']) : null,
             'collection_image_id' => isset($_POST['cardanonftcollectionimageid']) && !empty($_POST['cardanonftcollectionimageid']) ? intval($_POST['cardanonftcollectionimageid']) : null,
+            'preview_image_id' => isset($_POST['cardanonftpreviewimageid']) && !empty($_POST['cardanonftpreviewimageid']) ? intval($_POST['cardanonftpreviewimageid']) : null,
+            'preview_ipfs_cid_manual' => isset($_POST['preview_ipfs_cid_manual']) ? sanitize_text_field($_POST['preview_ipfs_cid_manual']) : null,
             'nft_metadata' => isset($_POST['cardanonftnftmetadata']) ? stripslashes($_POST['cardanonftnftmetadata']) : null,
             'policy_json' => $policy_json_validated,  // Validated JSON
             'quantity_total' => isset($_POST['cardanonftquantity']) ? intval($_POST['cardanonftquantity']) : 1,

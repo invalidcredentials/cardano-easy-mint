@@ -161,6 +161,26 @@ class MintModel {
     }
 
     /**
+     * Add preview-image columns for video/audio mints (still thumbnail
+     * shown in wallet/marketplace previews while files[] carries the
+     * actual video). Idempotent — only adds columns if missing.
+     */
+    public static function add_preview_image_columns() {
+        global $wpdb;
+        $table = self::get_active_mints_table();
+
+        $col1 = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'preview_image_id'");
+        if (empty($col1)) {
+            $wpdb->query("ALTER TABLE $table ADD COLUMN preview_image_id int(11) unsigned DEFAULT NULL AFTER collection_image_id");
+        }
+
+        $col2 = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'preview_ipfs_cid_manual'");
+        if (empty($col2)) {
+            $wpdb->query("ALTER TABLE $table ADD COLUMN preview_ipfs_cid_manual varchar(60) DEFAULT NULL AFTER preview_image_id");
+        }
+    }
+
+    /**
      * Add metadata and policy JSON columns to existing table
      */
     public static function add_metadata_columns() {

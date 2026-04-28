@@ -213,13 +213,6 @@ class AnvilAPI {
                         $nft_media_type = $user_metadata['mediaType'];
                     }
 
-                    // Optional preview image for video/audio assets. Lets the
-                    // mint operator supply a still-frame PNG/GIF that wallets
-                    // and marketplaces use for the thumbnail, while the video
-                    // itself lives in files[].
-                    $nft_preview_image      = isset($user_metadata['previewImage'])     ? (string) $user_metadata['previewImage']     : '';
-                    $nft_preview_media_type = isset($user_metadata['previewMediaType']) ? (string) $user_metadata['previewMediaType'] : 'image/png';
-
                     // Collect any additional attributes (skip the reserved CIP-25 keys
                     // and our preview overrides — we handle those explicitly below)
                     $reserved_keys = array('name', 'description', 'image', 'mediaType', 'files', 'previewImage', 'previewMediaType');
@@ -263,8 +256,34 @@ class AnvilAPI {
             strpos($nft_media_type, 'video/') === 0 ||
             strpos($nft_media_type, 'audio/') === 0
         );
-        $preview_image      = isset($nft_preview_image) ? $nft_preview_image : '';
-        $preview_media_type = isset($nft_preview_media_type) ? $nft_preview_media_type : 'image/png';
+
+        // Resolve the preview image. Priority:
+        //   1. preview_ipfs_cid_manual on the mint row (manual paste)
+        //   2. preview_image_id WP attachment URL + mime
+        //   3. previewImage / previewMediaType inside user nft_metadata JSON
+        //      (legacy / advanced override)
+        $preview_image      = '';
+        $preview_media_type = 'image/png';
+
+        if (!empty($mint_data['preview_ipfs_cid_manual'])) {
+            $preview_image      = 'ipfs://' . $mint_data['preview_ipfs_cid_manual'];
+            $preview_media_type = 'image/png';
+        } elseif (!empty($mint_data['preview_image_id'])) {
+            $url = wp_get_attachment_url($mint_data['preview_image_id']);
+            if ($url) {
+                $preview_image      = $url;
+                $mime               = get_post_mime_type($mint_data['preview_image_id']);
+                if ($mime) $preview_media_type = $mime;
+            }
+        }
+        if ($preview_image === '' && isset($user_metadata) && is_array($user_metadata)) {
+            if (!empty($user_metadata['previewImage'])) {
+                $preview_image      = (string) $user_metadata['previewImage'];
+                $preview_media_type = !empty($user_metadata['previewMediaType'])
+                    ? (string) $user_metadata['previewMediaType']
+                    : 'image/png';
+            }
+        }
 
         $cip25_metadata = array(
             'name'        => $nft_name,
