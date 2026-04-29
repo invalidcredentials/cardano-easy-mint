@@ -301,8 +301,13 @@ class NFTCheckoutController {
             wp_send_json_error(['message' => $response->get_error_message()]);
         }
 
-        // If transaction successful, update mint counts and quantity
-        if (isset($response['txHash'])) {
+        // If transaction successful, update mint counts and quantity.
+        // Anvil has used both `txHash` and `hash` over time; accept either.
+        $tx_hash = '';
+        if (is_array($response)) {
+            $tx_hash = $response['txHash'] ?? $response['tx_hash'] ?? $response['hash'] ?? '';
+        }
+        if ($tx_hash) {
             // Get mint data to retrieve mints allowed per wallet and stake address
             $mint_data = MintModel::getMintById($asset_id);
             $mints_allowed = intval($mint_data['mintsallowedperwallet'] ?? 0);

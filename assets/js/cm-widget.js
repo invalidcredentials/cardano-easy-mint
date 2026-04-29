@@ -484,6 +484,9 @@
             var txCbor = buildResult.transaction || buildResult.tx || '';
             if (!txCbor) throw new Error('No transaction returned from server.');
 
+            var assetId  = Number(buildResult.asset_id || 0);
+            var policyId = buildResult.policy_id || self.collection.policy_id || '';
+
             self.showStatus('Please sign the transaction in your wallet...', 'info');
 
             // Step 2: Sign with user's wallet.
@@ -491,10 +494,14 @@
                 self.showStatus('Submitting transaction...', 'info');
 
                 // Step 3: Submit via server (adds policy wallet signature).
+                // Pass asset_id + wallet_address so the server can decrement
+                // quantity_minted and record the per-wallet mint count.
                 return apiPost('/mint/submit', {
-                    transaction: txCbor,
-                    witnesses: [witnessSet],
-                    policy_id: self.collection.policy_id || '',
+                    transaction:    txCbor,
+                    witnesses:      [witnessSet],
+                    policy_id:      policyId,
+                    asset_id:       assetId,
+                    wallet_address: self.wallet.address || '',
                 });
             });
         }).then(function (submitResult) {

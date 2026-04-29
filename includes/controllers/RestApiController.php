@@ -239,6 +239,14 @@ class RestApiController {
             return new \WP_REST_Response( array( 'error' => $result->get_error_message() ), 502 );
         }
 
+        // Echo back identifiers so the client can pass them to /mint/submit
+        // for post-mint accounting (decrement quantity, record per-wallet mint).
+        if ( is_array( $result ) ) {
+            $result['asset_id']     = (int) $asset['id'];
+            $result['collection_id'] = (int) ( $asset['collection_id'] ?? $collection_id );
+            $result['policy_id']    = $policy_id;
+        }
+
         return new \WP_REST_Response( $result );
     }
 
@@ -249,9 +257,11 @@ class RestApiController {
     public static function mint_submit( \WP_REST_Request $request ): \WP_REST_Response {
         $params = $request->get_json_params();
 
-        $transaction = $params['transaction'] ?? '';
-        $witnesses   = $params['witnesses'] ?? array();
-        $policy_id   = sanitize_text_field( $params['policy_id'] ?? '' );
+        $transaction     = $params['transaction'] ?? '';
+        $witnesses       = $params['witnesses'] ?? array();
+        $policy_id       = sanitize_text_field( $params['policy_id'] ?? '' );
+        $asset_id        = (int) ( $params['asset_id'] ?? 0 );
+        $wallet_address  = sanitize_text_field( $params['wallet_address'] ?? '' );
 
         if ( empty( $transaction ) ) {
             return new \WP_REST_Response( array( 'error' => 'Transaction data is required.' ), 400 );
@@ -267,6 +277,28 @@ class RestApiController {
 
         if ( is_wp_error( $result ) ) {
             return new \WP_REST_Response( array( 'error' => $result->get_error_message() ), 502 );
+        }
+
+        // Post-mint accounting: only run when Anvil confirms a txHash.
+        $tx_hash = is_array( $result ) ? ( $result['txHash'] ?? $result['tx_hash'] ?? $result['hash'] ?? '' ) : '';
+        if ( $tx_hash && $asset_id > 0 ) {
+            $decremented = MintModel::decrementQuantity( $asset_id );
+            if ( $decremented ) {
+                error_log( '[CardanoMint] REST: decremented quantity for asset ID ' . $asset_id );
+            } else {
+                error_log( '[CardanoMint] REST: WARNING failed to decrement quantity for asset ID ' . $asset_id );
+            }
+
+            if ( $policy_id ) {
+                MintModel::markRoyaltyTokenMinted( $policy_id );
+            }
+
+            if ( $wallet_address && $policy_id ) {
+                $mint_data     = MintModel::getMintById( $asset_id );
+                $mints_allowed = intval( $mint_data['mintsallowedperwallet'] ?? 0 );
+                MintModel::recordMint( $policy_id, $wallet_address, null, $mints_allowed );
+                MintModel::incrementMintCount( $policy_id, $wallet_address );
+            }
         }
 
         return new \WP_REST_Response( $result );
