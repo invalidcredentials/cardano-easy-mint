@@ -956,6 +956,13 @@
                     
                     // Step 2: Sign transaction
                     console.log('Please sign the transaction in your wallet...');
+                    console.log('[CardanoMint] buildData keys:', Object.keys(buildData || {}));
+                    if (buildData && buildData.complete) {
+                        var txHex = buildData.complete;
+                        console.log('[CardanoMint] tx CBOR length:', txHex.length, 'first 80 chars:', String(txHex).slice(0, 80));
+                    } else {
+                        console.warn('[CardanoMint] no `complete` field on buildData — Anvil may have returned an empty tx', buildData);
+                    }
                     let signature;
                     try {
                         signature = await mintWallet.signTx(buildData.complete);
