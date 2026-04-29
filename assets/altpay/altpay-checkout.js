@@ -10,6 +10,32 @@
 
     const cfg = window.cardanoAltPayCheckout || {};
 
+    // Convert chain-native smallest unit (sats / wei / lamports) into
+    // human-readable major units. Uses BigInt for ETH so we don't lose
+    // precision on 1e18 wei values.
+    const CHAIN_DECIMALS = { btc: 8, eth: 18, sol: 9 };
+    function formatChainAmount(chain, minorStr) {
+        const decimals = CHAIN_DECIMALS[chain] || 0;
+        if (!minorStr || minorStr === '0') return { major: '0', minor: '0', symbol: chain.toUpperCase() };
+        let major;
+        try {
+            const big = BigInt(minorStr);
+            const base = BigInt(10) ** BigInt(decimals);
+            const whole = (big / base).toString();
+            const frac = (big % base).toString().padStart(decimals, '0').replace(/0+$/, '');
+            major = frac ? whole + '.' + frac : whole;
+        } catch (e) {
+            // Fall back to float math for tiny values where BigInt parsing fails.
+            const f = Number(minorStr) / Math.pow(10, decimals);
+            major = f.toString();
+        }
+        return { major: major, minor: minorStr, symbol: chain.toUpperCase() };
+    }
+
+    function chainMinorLabel(chain) {
+        return chain === 'btc' ? 'sats' : chain === 'eth' ? 'wei' : 'lamports';
+    }
+
     function rest(path, method, body) {
         const opts = { method: method || 'GET', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' } };
         if (body) opts.body = JSON.stringify(body);
@@ -117,14 +143,27 @@
             }).then(function (q) {
                 invoiceField.value = q.invoice_id;
                 addrEl.textContent  = q.address;
-                amountEl.textContent = q.expected_amount_minor + ' ' + (q.currency || chain.toUpperCase());
-                statusText.textContent = 'waiting for payment…';
+
+                const f = formatChainAmount(chain, q.expected_amount_minor || '0');
+                // Major units in big text + minor units underneath for verification.
+                amountEl.innerHTML = f.major + ' <span class="altpay-amount-symbol">' + f.symbol + '</span>'
+                    + '<span class="altpay-amount-minor">(' + Number(f.minor).toLocaleString('en-US') + ' ' + chainMinorLabel(chain) + ')</span>';
+
+                setStatus('pending', 'waiting for payment…');
                 startPolling(q.invoice_id);
             }).catch(function (e) {
-                statusText.textContent = 'quote failed: ' + e.message;
+                setStatus('error', 'quote failed: ' + e.message);
                 amountEl.textContent = 'failed';
                 setProceedEnabled(false, 'Continue to Mint');
             });
+        }
+
+        function setStatus(kind, text) {
+            statusText.classList.remove('is-pending', 'is-funded', 'is-error');
+            if (kind === 'pending') statusText.classList.add('is-pending');
+            else if (kind === 'funded') statusText.classList.add('is-funded');
+            else if (kind === 'error') statusText.classList.add('is-error');
+            statusText.textContent = text;
         }
 
         function startPolling(invoiceId) {
@@ -136,10 +175,16 @@
         function pollOnce(invoiceId) {
             rest('/altpay/status?invoice_id=' + encodeURIComponent(invoiceId)).then(function (s) {
                 if (!s) return;
-                statusText.textContent = s.status || 'unknown';
+                const kind = s.status === 'funded' ? 'funded'
+                    : ['expired','cancelled','underpaid','overpaid'].indexOf(s.status) !== -1 ? 'error'
+                    : 'pending';
+                setStatus(kind, s.status || 'unknown');
+
                 if (s.observed_amount_minor) {
+                    const chain = chainField.value;
+                    const f = formatChainAmount(chain, s.observed_amount_minor);
                     observedEl.style.display = 'inline';
-                    observedEl.textContent = ' (observed: ' + s.observed_amount_minor + ')';
+                    observedEl.textContent = ' observed ' + f.major + ' ' + f.symbol;
                 }
                 if (s.status === 'funded') {
                     clearInterval(pollHandle); pollHandle = null;
