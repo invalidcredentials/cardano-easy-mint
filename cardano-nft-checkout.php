@@ -26,6 +26,29 @@ require_once plugin_dir_path(__FILE__) . 'includes/controllers/AJAXController.ph
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/RestApiController.php';
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/WidgetAdminController.php';
 
+// Alt-chain payments (BTC/ETH/SOL) — Phase 2.
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/lib/Secp256k1.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/lib/Keccak.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/encoding/Bech32.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/encoding/Base58.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/encoding/KeccakAddress.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/Bip39.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/Bip32Secp.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/Slip10Ed25519.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/rpc/MempoolClient.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/rpc/EthRpcClient.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/rpc/SolRpcClient.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/ChainPaymentProvider.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/AltPayInstaller.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/PriceOracle.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/AltPayService.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/providers/BtcProvider.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/providers/EthProvider.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/providers/SolProvider.php';
+require_once plugin_dir_path(__FILE__) . 'includes/models/ChainWalletModel.php';
+require_once plugin_dir_path(__FILE__) . 'includes/models/ChainInvoiceModel.php';
+require_once plugin_dir_path(__FILE__) . 'includes/models/ChainTxLogModel.php';
+
 // Register activation hook for database tables
 register_activation_hook(__FILE__, 'cardanomint_activate');
 
@@ -42,8 +65,30 @@ function cardanomint_activate() {
     CardanoMintPay\Models\MintModel::add_multi_asset_columns();
     CardanoMintPay\Models\MintModel::add_preview_image_columns();
 
+    // Alt-chain payments schema (BTC/ETH/SOL).
+    CardanoMintPay\AltPay\AltPayInstaller::install();
+
     // Fix binary permissions on Linux
     cardanomint_fix_binary_permissions();
+}
+
+/**
+ * Capability check for alt-chain payments. Returns ['ok' => bool, 'missing' => string[]].
+ * Pure-PHP secp256k1 needs at minimum BCMath; GMP is preferred. SOL needs libsodium
+ * (built into PHP 7.2+ but can be disabled at compile time on hardened hosts).
+ */
+function cardanomint_altpay_capability_check(): array {
+    $missing = [];
+    if (!extension_loaded('bcmath') && !extension_loaded('gmp')) {
+        $missing[] = 'bcmath or gmp (required for BTC/ETH big-int math)';
+    }
+    if (!function_exists('sodium_crypto_sign_seed_keypair')) {
+        $missing[] = 'sodium (required for SOL ed25519 signing)';
+    }
+    if (!function_exists('hash_hmac')) {
+        $missing[] = 'hash (required for BIP32 / SLIP-0010)';
+    }
+    return ['ok' => empty($missing), 'missing' => $missing];
 }
 
 // One-time migration for preview-image columns (for installs that were
@@ -126,6 +171,27 @@ add_action('admin_init', function() {
     }
 });
 
+// Idempotent altpay schema check on every admin_init. Cheap: returns early
+// once the version flag is set. Mirrors the JIT-migration pattern.
+add_action('admin_init', function() {
+    if (class_exists('CardanoMintPay\\AltPay\\AltPayInstaller')) {
+        CardanoMintPay\AltPay\AltPayInstaller::maybe_install();
+    }
+});
+
+// Surface a one-shot admin notice if the AltPay capability check fails.
+// We do not block activation; we just tell the operator why the feature
+// will refuse to issue quotes.
+add_action('admin_notices', function() {
+    if (!current_user_can('manage_options')) return;
+    if (get_option('cardano_mint_altpay_enabled') !== '1') return;
+    $cap = cardanomint_altpay_capability_check();
+    if ($cap['ok']) return;
+    echo '<div class="notice notice-error"><p><strong>Cardano Mint AltPay:</strong> the following PHP extensions are missing: '
+       . esc_html(implode(', ', $cap['missing']))
+       . '. Alt-chain payments will refuse to issue quotes until these are available.</p></div>';
+});
+
 // Register deactivation hook for cleanup
 register_deactivation_hook(__FILE__, 'cardanomint_deactivate');
 
@@ -155,6 +221,39 @@ add_action('init', function() {
     CardanoMintPay\Controllers\AJAXController::register();
     CardanoMintPay\Controllers\RestApiController::init();
     CardanoMintPay\Controllers\WidgetAdminController::init();
+
+    // Alt-chain providers — register one instance per chain with the service.
+    if (class_exists('CardanoMintPay\\AltPay\\AltPayService')) {
+        CardanoMintPay\AltPay\AltPayService::register(new CardanoMintPay\AltPay\Providers\BtcProvider());
+        CardanoMintPay\AltPay\AltPayService::register(new CardanoMintPay\AltPay\Providers\EthProvider());
+        CardanoMintPay\AltPay\AltPayService::register(new CardanoMintPay\AltPay\Providers\SolProvider());
+    }
+});
+
+// Watcher cron: hourly is the WP default minimum, so we register a custom
+// every-minute schedule. The tick scans pending invoices and promotes them.
+add_filter('cron_schedules', function($schedules) {
+    if (!isset($schedules['cardano_altpay_minute'])) {
+        $schedules['cardano_altpay_minute'] = ['interval' => 60, 'display' => 'Every minute (Cardano AltPay)'];
+    }
+    return $schedules;
+});
+
+add_action('init', function() {
+    if (!wp_next_scheduled('cardano_altpay_watcher_tick')) {
+        wp_schedule_event(time() + 60, 'cardano_altpay_minute', 'cardano_altpay_watcher_tick');
+    }
+});
+
+add_action('cardano_altpay_watcher_tick', function() {
+    if (class_exists('CardanoMintPay\\AltPay\\AltPayService')) {
+        CardanoMintPay\AltPay\AltPayService::watcher_tick();
+    }
+});
+
+register_deactivation_hook(__FILE__, function() {
+    $ts = wp_next_scheduled('cardano_altpay_watcher_tick');
+    if ($ts) wp_unschedule_event($ts, 'cardano_altpay_watcher_tick');
 });
 
 // Enqueue scripts and styles for Cardano Mint
