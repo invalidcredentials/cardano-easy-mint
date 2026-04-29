@@ -250,6 +250,43 @@
             }
         }
 
+        // Rewrite the step-2 receipt so the customer doesn't see the
+        // full ADA price after they already paid on another chain.
+        // The merchant tx that gets built only takes the configured ADA
+        // service fee (default 5) + Anvil + ~0.17 network + 1 ADA receipt.
+        function rewriteReceiptForAltPay(chain) {
+            if (!chain || chain === 'ada') return;
+            const $usd = document.getElementById('review-nft-price-usd');
+            const $ada = document.getElementById('review-nft-price-ada');
+            const $totUsd = document.getElementById('review-total-usd');
+            const $totAda = document.getElementById('review-total-ada');
+            const $anvilAda = document.getElementById('review-anvil-ada');
+            const $netAda   = document.getElementById('review-network-ada');
+            if (!$usd || !$ada || !$totUsd || !$totAda) return;
+
+            const SERVICE_FEE_ADA = 5; // matches cardano_mint_service_fee_ada default; live override comes from server build
+            const anvilAda = parseFloat((($anvilAda && $anvilAda.textContent) || '1.15')) || 1.15;
+            const netAda   = parseFloat((($netAda   && $netAda.textContent  ) || '0.22')) || 0.22;
+            const totalAda = SERVICE_FEE_ADA + anvilAda + netAda;
+
+            $usd.innerHTML = '<span style="color:#0a7d22;">Paid via ' + chain.toUpperCase() + ' &#10003;</span>';
+            $ada.innerHTML = '<span style="color:#0a7d22;">$0 due in ADA</span>';
+            $totUsd.innerHTML = '<span style="font-size:14px; color:#888;">' + chain.toUpperCase() + ' covered, plus</span>';
+            $totAda.textContent = '~' + totalAda.toFixed(2) + ' ADA service';
+
+            // Drop a small banner above the order summary if not already there.
+            if (!document.getElementById('altpay-receipt-banner')) {
+                const summary = document.querySelector('.mint-receipt-card .receipt-header');
+                if (summary) {
+                    const banner = document.createElement('div');
+                    banner.id = 'altpay-receipt-banner';
+                    banner.style.cssText = 'background:#0a7d22; color:#fff; padding:8px 12px; border-radius:6px; margin-bottom:10px; font-size:13px; text-align:center;';
+                    banner.textContent = chain.toUpperCase() + ' payment received. Sign the Cardano tx below to receive your NFT.';
+                    summary.parentNode.insertBefore(banner, summary);
+                }
+            }
+        }
+
         function attachToActiveInvoice(chain, stored) {
             // Bail if the connected Cardano wallet differs from the one the
             // session was bound to — the server-side check would fail anyway.
@@ -268,6 +305,9 @@
             showState('active');
             startPolling(stored.invoice_id);
             tryWakeLock();
+            // If the stored invoice was already funded server-side, the next
+            // poll tick will rewrite the receipt; do it eagerly here too.
+            rewriteReceiptForAltPay(chain);
         }
 
         function startPaymentSession() {
@@ -340,6 +380,7 @@
                     stopCountdown();
                     setProceedEnabled(true, 'Payment received — Continue to Mint');
                     releaseWakeLock();
+                    rewriteReceiptForAltPay(chainField.value);
                 } else if (['expired', 'cancelled', 'consumed'].indexOf(s.status) !== -1) {
                     stopPolling();
                     stopCountdown();
