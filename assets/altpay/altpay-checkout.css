@@ -1,25 +1,165 @@
-.altpay-picker { font-size: 14px; }
+/*
+ * altpay-checkout.css
+ *
+ * Styles only the picker + pay panel that lives inside the existing
+ * .cardano-modal. Variables mirror the modal palette (#0A090C dark bg,
+ * #24A4BD teal accent, #fefefc near-white text) so the new UI doesn't
+ * fight the existing one.
+ */
 
-.altpay-chips { gap: 8px; }
+.altpay-picker {
+    margin-top: 18px;
+    padding: 16px 18px;
+    background: #14131a;
+    border: 1px solid #2a2937;
+    border-radius: 10px;
+    color: #fefefc;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.altpay-picker > h4 {
+    margin: 0 0 10px 0;
+    color: #fefefc;
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.altpay-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
 .altpay-chip {
     cursor: pointer;
-    padding: 8px 14px;
+    padding: 8px 16px;
     border-radius: 999px;
-    border: 1px solid #d0d0d0;
-    background: #fff;
-    color: #222;
-    font-weight: 500;
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    border: 1px solid #2f2e3c;
+    background: transparent;
+    color: #cfcdd6;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
-.altpay-chip:hover { border-color: #888; }
+.altpay-chip:hover {
+    border-color: #24A4BD;
+    color: #fefefc;
+}
 .altpay-chip.is-active {
-    background: #111;
-    color: #fff;
-    border-color: #111;
+    background: #24A4BD;
+    color: #0A090C;
+    border-color: #24A4BD;
+    box-shadow: 0 0 0 3px rgba(36, 164, 189, 0.18);
 }
 
-.altpay-pay-panel code.altpay-address { font-size: 13px; }
-.altpay-pay-panel .altpay-status-text { text-transform: capitalize; }
-.altpay-pay-panel .altpay-amount-display { font-family: ui-monospace, SFMono-Regular, monospace; }
+.altpay-hint {
+    font-size: 12px;
+    color: #9b99a6;
+    margin: 0 0 0 0;
+}
 
-#proceed-to-confirm[disabled] { pointer-events: none; }
+.altpay-pay-panel {
+    margin-top: 14px;
+    padding: 14px 16px;
+    background: #0d0c12;
+    border: 1px solid #2a2937;
+    border-radius: 8px;
+    color: #fefefc;
+}
+
+.altpay-pay-instructions {
+    margin: 0 0 10px 0;
+    color: #cfcdd6;
+    font-size: 13px;
+}
+
+.altpay-amount-display {
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
+    color: #fefefc;
+    font-weight: 600;
+    font-size: 18px;
+}
+.altpay-amount-symbol {
+    color: #24A4BD;
+    font-weight: 700;
+    margin-left: 4px;
+}
+
+.altpay-amount-usd {
+    color: #9b99a6;
+    font-weight: 400;
+    font-size: 12px;
+    margin-left: 6px;
+}
+
+.altpay-amount-minor {
+    display: block;
+    color: #6b6976;
+    font-size: 11px;
+    margin-top: 2px;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.altpay-address-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.altpay-address {
+    flex: 1 1 320px;
+    word-break: break-all;
+    padding: 9px 12px;
+    background: #06050a;
+    border: 1px solid #2a2937;
+    border-radius: 5px;
+    color: #fefefc;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    user-select: all;
+}
+
+.altpay-pay-panel .button {
+    background: #24A4BD;
+    color: #0A090C;
+    border: 1px solid #24A4BD;
+    border-radius: 5px;
+    padding: 7px 14px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.altpay-pay-panel .button:hover { background: #1c8294; border-color: #1c8294; }
+.altpay-pay-panel .button[data-altpay-action="cancel"] {
+    background: transparent;
+    color: #cfcdd6;
+    border-color: #2f2e3c;
+}
+.altpay-pay-panel .button[data-altpay-action="cancel"]:hover {
+    border-color: #88838f;
+    color: #fefefc;
+}
+
+.altpay-status-line {
+    margin: 12px 0 0 0;
+    color: #cfcdd6;
+    font-size: 13px;
+}
+.altpay-status-text {
+    text-transform: capitalize;
+    color: #fefefc;
+}
+.altpay-status-text.is-funded { color: #4ade80; }
+.altpay-status-text.is-pending { color: #f5c451; }
+.altpay-status-text.is-error { color: #f87171; }
+
+.altpay-observed { color: #4ade80; font-size: 12px; margin-left: 4px; }
+
+#proceed-to-confirm[disabled] { pointer-events: none; opacity: 0.55; }
