@@ -250,37 +250,94 @@
             }
         }
 
-        // Rewrite the step-2 receipt so the customer doesn't see the
-        // full ADA price after they already paid on another chain.
-        // The merchant tx that gets built only takes the configured ADA
-        // service fee (default 5) + Anvil + ~0.17 network + 1 ADA receipt.
+        // Rewrite the step-2 receipt so the customer sees an honest line-item
+        // breakdown of every ADA charge that's actually inside the on-chain tx
+        // when they already paid on a different chain:
+        //
+        //   NFT Mint Price            -> Paid via X (no charge)
+        //   Cross-Chain Service Fee   -> N ADA   (the override; goes to merchant)
+        //   Anvil Minting Service     -> 1.15 ADA (Anvil's API fee, untouched)
+        //   Cardano Network Fee       -> ~0.22 ADA (untouched)
+        //   NFT Receipt UTxO          -> 1.00 ADA   (returned to wallet with NFT)
+        //   Total                     -> sum
         function rewriteReceiptForAltPay(chain) {
             if (!chain || chain === 'ada') return;
             const $usd = document.getElementById('review-nft-price-usd');
             const $ada = document.getElementById('review-nft-price-ada');
             const $totUsd = document.getElementById('review-total-usd');
             const $totAda = document.getElementById('review-total-ada');
+            const $anvilUsd = document.getElementById('review-anvil-usd');
             const $anvilAda = document.getElementById('review-anvil-ada');
+            const $netUsd   = document.getElementById('review-network-usd');
             const $netAda   = document.getElementById('review-network-ada');
             if (!$usd || !$ada || !$totUsd || !$totAda) return;
 
-            const SERVICE_FEE_ADA = 5; // matches cardano_mint_service_fee_ada default; live override comes from server build
-            const anvilAda = parseFloat((($anvilAda && $anvilAda.textContent) || '1.15')) || 1.15;
-            const netAda   = parseFloat((($netAda   && $netAda.textContent  ) || '0.22')) || 0.22;
-            const totalAda = SERVICE_FEE_ADA + anvilAda + netAda;
+            const SERVICE_FEE_ADA = (cfg && Number(cfg.serviceFeeAda)) || 5;
+            const RECEIPT_ADA     = 1.0;
 
+            const num = (el, fallback) => {
+                if (!el) return fallback;
+                const m = String(el.textContent || '').match(/[\d.]+/);
+                const v = m ? parseFloat(m[0]) : NaN;
+                return isFinite(v) && v > 0 ? v : fallback;
+            };
+            const anvilAda = num($anvilAda, 1.15);
+            const anvilUsd = num($anvilUsd, 0.29);
+            const netAda   = num($netAda,   0.22);
+            const netUsd   = num($netUsd,   0.05);
+
+            const usdPerAda  = anvilAda > 0 ? (anvilUsd / anvilAda) : 0.25;
+            const serviceUsd = SERVICE_FEE_ADA * usdPerAda;
+            const receiptUsd = RECEIPT_ADA     * usdPerAda;
+
+            const totalAda = SERVICE_FEE_ADA + anvilAda + netAda + RECEIPT_ADA;
+            const totalUsd = serviceUsd + anvilUsd + netUsd + receiptUsd;
+
+            // 1) NFT Mint Price line: paid off-chain
             $usd.innerHTML = '<span style="color:#4ade80;">Paid via ' + chain.toUpperCase() + ' &#10003;</span>';
             $ada.innerHTML = '<span style="color:#4ade80;">$0 due in ADA</span>';
-            $totUsd.innerHTML = '<span style="font-size:13px; color:#9b99a6;">' + chain.toUpperCase() + ' covered, plus</span>';
-            $totAda.textContent = '~' + totalAda.toFixed(2) + ' ADA service';
 
-            // The "1.22 ADA UTxO note" copy is for the all-ADA flow; when we
-            // override the merchant output to the configured service fee the
-            // accompanying notes lose context. Hide them.
+            // 2) Inject the Cross-Chain Service Fee line (above Anvil Minting Service)
+            const anvilLine = $anvilUsd ? $anvilUsd.closest('.receipt-line-item') : null;
+            let serviceLine = document.getElementById('review-altpay-service-line');
+            if (!serviceLine && anvilLine && anvilLine.parentNode) {
+                serviceLine = document.createElement('div');
+                serviceLine.className = 'receipt-line-item';
+                serviceLine.id = 'review-altpay-service-line';
+                serviceLine.innerHTML =
+                    '<span class="line-item-label">Cross-Chain Service Fee</span>' +
+                    '<div class="line-item-value">' +
+                      '<div class="price-usd">$' + serviceUsd.toFixed(2) + ' USD</div>' +
+                      '<div class="price-ada">' + SERVICE_FEE_ADA.toFixed(2) + ' ADA</div>' +
+                    '</div>';
+                anvilLine.parentNode.insertBefore(serviceLine, anvilLine);
+            }
+
+            // 3) Inject the Receipt UTxO line (after Cardano Network Fee)
+            const networkLine = $netUsd ? $netUsd.closest('.receipt-line-item') : null;
+            let receiptLine = document.getElementById('review-altpay-receipt-line');
+            if (!receiptLine && networkLine && networkLine.parentNode) {
+                receiptLine = document.createElement('div');
+                receiptLine.className = 'receipt-line-item';
+                receiptLine.id = 'review-altpay-receipt-line';
+                receiptLine.innerHTML =
+                    '<span class="line-item-label">NFT Receipt UTxO <span style="color:#9b99a6; font-size:11px; font-weight:400;">(returns with the NFT)</span></span>' +
+                    '<div class="line-item-value">' +
+                      '<div class="price-usd" style="color:#9b99a6;">refunded</div>' +
+                      '<div class="price-ada">' + RECEIPT_ADA.toFixed(2) + ' ADA</div>' +
+                    '</div>';
+                networkLine.parentNode.insertBefore(receiptLine, networkLine.nextSibling);
+            }
+
+            // 4) Total
+            $totUsd.innerHTML = '<span style="font-size:13px; color:#9b99a6;">' + chain.toUpperCase() + ' covered, plus</span><br>$' + totalUsd.toFixed(2) + ' USD';
+            $totAda.textContent = '~' + totalAda.toFixed(2) + ' ADA';
+
+            // 5) Hide the static UTxO note (replaced by the explicit line item)
             const utxoNote = document.querySelector('.receipt-info-text');
             if (utxoNote) utxoNote.style.display = 'none';
 
-            // Drop a small banner above the order summary if not already there.
+            // 6) Drop a small banner above the order summary if not already there.
             if (!document.getElementById('altpay-receipt-banner')) {
                 const summary = document.querySelector('.mint-receipt-card .receipt-header');
                 if (summary) {
