@@ -434,7 +434,7 @@ font-size:14px;
 
 .mint-step h3 {
     background-color: #376e7a3b;
-    margin: 0 0 40px 0;
+    margin: 0 0 22px 0;
     width: 100%;
     padding: 10px;
     color: #fefefc;
@@ -456,10 +456,68 @@ font-size:14px;
 }
 
 .wallet-connection p {
-    margin: -15px auto 30px auto;
+    margin: 0 auto 18px auto;
     max-width: 85%;
     color: #9b9b9b;
     font-size: 1em;
+}
+
+/* Connected-wallet card: unifies provider + address into one panel */
+.wallet-name-display,
+.wallet-address-display {
+    background: #14131a;
+    border: 1px solid #2a2937;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 0 auto 10px auto;
+    max-width: 100%;
+    text-align: left;
+}
+.wallet-name-display p,
+.wallet-address-display p {
+    margin: 0;
+    color: #cfcdd6;
+    font-size: 0.95em;
+    line-height: 1.5;
+    max-width: none;
+    text-align: left;
+}
+.wallet-name-display strong,
+.wallet-address-display strong {
+    color: #9b99a6;
+    font-weight: 500;
+    margin-right: 8px;
+    text-transform: uppercase;
+    font-size: 0.78em;
+    letter-spacing: 0.06em;
+}
+#connected-wallet-name { color: #fefefc; font-weight: 600; }
+#connected-wallet-address {
+    display: block;
+    margin-top: 4px;
+    color: #fefefc;
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
+    font-size: 0.82em;
+    word-break: break-all;
+    user-select: all;
+}
+
+/* Connected state of the green button + hint copy */
+.btn-connect-wallet.is-connected {
+    background: #2da44e;
+    line-height: 1.25;
+    padding-top: 12px;
+    padding-bottom: 12px;
+}
+.btn-connect-wallet.is-connected:hover { background: #246e35; }
+.wallet-connected-hint {
+    display: block;
+    margin-top: 4px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.7em;
+    font-weight: 400;
+    opacity: 0.85;
 }
 
 .btn-connect-wallet {
