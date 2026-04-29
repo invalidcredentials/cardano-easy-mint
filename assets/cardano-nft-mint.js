@@ -507,12 +507,26 @@
             }
         }
 
+    // True when the customer paid on a non-Cardano chain. In that case the
+    // alt-pay overlay (altpay-checkout.js) has already rewritten the receipt
+    // to mark the NFT line "Paid via SOL ✓" and shown a Cross-Chain Service
+    // Fee line. We MUST NOT touch totals or qty in that mode — the customer
+    // already paid for exactly 1 NFT off-chain, and stomping the receipt
+    // would re-bill them.
+    function isAltPayActive() {
+        const inv = document.getElementById('altpay-invoice-id');
+        if (inv && inv.value) return true;
+        if (document.getElementById('review-altpay-service-line')) return true;
+        return false;
+    }
+
     // Quantity stepper: tracks how many NFTs the customer wants in this tx
     // (1-5 cap; per-wallet limit is enforced separately on the server). The
     // line items in Step 2 are pre-rendered with per-unit values stored on
     // data-unit-usd / data-unit-ada attributes; this function multiplies them
     // by the current qty and rewrites the visible numbers + the running total.
     function recomputeReviewTotals() {
+        if (isAltPayActive()) return; // alt-pay overlay owns the receipt
         const qtyInput = document.getElementById('qty-input');
         if (!qtyInput) return;
         const qty = Math.max(1, Math.min(5, parseInt(qtyInput.value, 10) || 1));
@@ -565,28 +579,36 @@
         if (lineLabel) lineLabel.textContent = qty > 1 ? ('NFT Mint Price × ' + qty) : 'NFT Mint Price';
     }
 
+    // Run every Step 2 entry. Hiding for alt-pay must happen even if event
+    // listeners are already bound from a previous open of the modal, so the
+    // visibility check is intentionally outside the dataset.bound guard.
     function setupQuantityStepper() {
         const dec = document.getElementById('qty-dec');
         const inc = document.getElementById('qty-inc');
         const inp = document.getElementById('qty-input');
-        if (!dec || !inc || !inp || dec.dataset.bound) return;
+        const row = document.getElementById('receipt-quantity-row');
+        const hint = document.getElementById('quantity-hint');
+        if (!dec || !inc || !inp) return;
+
+        // Visibility/qty pin for alt-pay (re-checked on every Step 2 entry).
+        if (isAltPayActive()) {
+            inp.value = '1';
+            if (row)  row.style.display = 'none';
+            if (hint) hint.style.display = 'none';
+        } else {
+            if (row)  row.style.display = '';
+            if (hint) hint.style.display = '';
+        }
+
+        if (dec.dataset.bound) return;
         dec.dataset.bound = '1';
         const setQty = function (n) {
+            if (isAltPayActive()) { inp.value = '1'; return; }
             inp.value = Math.max(1, Math.min(5, n));
             recomputeReviewTotals();
         };
         dec.addEventListener('click', function () { setQty(parseInt(inp.value, 10) - 1); });
         inc.addEventListener('click', function () { setQty(parseInt(inp.value, 10) + 1); });
-
-        // Alt-pay invoices lock the price at quote time and v1 only supports
-        // qty=1 there; hide the stepper if the alt-pay flow has set an invoice.
-        const altpayInvoice = document.getElementById('altpay-invoice-id');
-        const row = document.getElementById('receipt-quantity-row');
-        const hint = document.getElementById('quantity-hint');
-        if (altpayInvoice && altpayInvoice.value && row) {
-            row.style.display = 'none';
-            if (hint) hint.style.display = 'none';
-        }
     }
 
     // Initialize when DOM is loaded
