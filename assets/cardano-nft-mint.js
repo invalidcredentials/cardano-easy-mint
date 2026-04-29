@@ -1016,10 +1016,26 @@
                     
                 } catch (error) {
                     console.error('Mint failed (full error):', error);
+
+                    // CIP-30 wallet error codes per the standard. -2 / -3 / -4 come
+                    // from the wallet itself, not from our server. Translate them
+                    // to something a customer can act on.
+                    var walletCode = error && (typeof error.code === 'number' ? error.code : null);
+                    var walletInfo = error && (error.info || (error.data && error.data.info));
+                    var hint = '';
+                    if (walletCode === -1) hint = 'Wallet API error — try reconnecting your wallet.';
+                    else if (walletCode === -2) hint = 'Your wallet rejected the transaction. The most common cause is not enough ADA in this wallet to cover the service fee + receipt + network fee. Make sure this wallet has at least 8 ADA available, then try again.';
+                    else if (walletCode === -3) hint = 'Refused by the wallet. Check that the wallet is unlocked and on the correct network.';
+                    else if (walletCode === -4) hint = 'Account change in the wallet — pick the correct account and reconnect.';
+                    else if (walletCode === 1) hint = 'Wallet returned an invalid request shape. Reload and try again.';
+                    else if (walletCode === 2) hint = 'You declined the signature in your wallet. No transaction was sent.';
+
                     var msg;
-                    if (error && typeof error === 'object') {
-                        msg = error.message || error.code || (error.toString && error.toString());
-                        if (error.info) msg = (msg ? msg + ' — ' : '') + JSON.stringify(error.info);
+                    if (hint) {
+                        msg = hint;
+                    } else if (error && typeof error === 'object') {
+                        msg = error.message || (walletCode !== null ? 'wallet error code ' + walletCode : null) || (error.toString && error.toString());
+                        if (walletInfo) msg = (msg ? msg + ' — ' : '') + (typeof walletInfo === 'string' ? walletInfo : JSON.stringify(walletInfo));
                         if (error.data && error.data.message) msg = error.data.message;
                     } else if (typeof error === 'string') {
                         msg = error;
