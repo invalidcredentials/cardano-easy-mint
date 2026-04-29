@@ -676,13 +676,11 @@
         // Subscribe to wallet state changes — update UI automatically
         CardanoMintWallet.subscribe(function(state) {
             if (state.isConnected && state.address) {
-                var displayAddr = state.address.substring(0, 14) + '...' + state.address.slice(-6);
-
                 mintWallet = {
                     name: state.walletKey,
                     displayName: state.walletName,
                     changeAddress: state.address,
-                    displayAddress: displayAddr,
+                    displayAddress: state.address,
                     fullAddress: state.address,
                     api: state.handler,
                     signTx: async function(tx) {
@@ -692,16 +690,42 @@
 
                 if (walletName) walletName.textContent = state.walletName;
                 if (walletNameDisplay) walletNameDisplay.style.display = 'block';
-                if (walletAddress) walletAddress.textContent = displayAddr;
+                if (walletAddress) walletAddress.textContent = state.address;
                 if (walletDisplay) walletDisplay.style.display = 'block';
                 if (walletInput) walletInput.value = state.address;
                 if (connectBtn) {
-                    connectBtn.textContent = 'Wallet Connected ✓';
-                    connectBtn.style.backgroundColor = '#28a745';
+                    connectBtn.innerHTML = 'Wallet Connected &#10003;<span class="wallet-connected-hint">click to switch wallets or disconnect</span>';
+                    connectBtn.classList.add('is-connected');
+                    connectBtn.dataset.connected = '1';
                 }
                 if (proceedBtn) proceedBtn.style.display = 'block';
+            } else {
+                // Wallet was disconnected — return the button to its initial state.
+                if (connectBtn) {
+                    connectBtn.textContent = 'Connect Wallet';
+                    connectBtn.classList.remove('is-connected');
+                    delete connectBtn.dataset.connected;
+                    connectBtn.disabled = false;
+                }
+                if (walletNameDisplay) walletNameDisplay.style.display = 'none';
+                if (walletDisplay) walletDisplay.style.display = 'none';
+                if (proceedBtn) proceedBtn.style.display = 'none';
+                mintWallet = null;
             }
         });
+
+        // While connected, clicking the green button disconnects + re-opens
+        // the wallet picker so the customer can switch providers.
+        if (connectBtn) {
+            connectBtn.addEventListener('click', function (ev) {
+                if (connectBtn.dataset.connected !== '1') return; // not connected, default flow handles it
+                ev.preventDefault();
+                ev.stopImmediatePropagation();
+                if (window.confirm('Disconnect this wallet? You can pick a different one after disconnecting.')) {
+                    CardanoMintWallet.disconnect();
+                }
+            }, true);
+        }
 
         // Inject wallet-picker styles once
         if (!document.getElementById('cardano-mint-picker-styles')) {
