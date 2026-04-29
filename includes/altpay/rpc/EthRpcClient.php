@@ -74,16 +74,9 @@ class EthRpcClient {
     /** Convert "0x" hex to a decimal string. Uses GMP/bcmath for arbitrary precision. */
     private function hexToDecimalString(string $hex): string {
         $hex = ltrim($hex, 'x');
-        $hex = ltrim($hex, '0');
         if (strpos($hex, '0x') === 0) $hex = substr($hex, 2);
+        $hex = ltrim($hex, '0');
         if ($hex === '') return '0';
-        if (function_exists('gmp_init')) return gmp_strval(gmp_init('0x' . $hex), 10);
-        // bcmath fallback
-        $dec = '0';
-        for ($i = 0; $i < strlen($hex); $i++) {
-            $dec = bcmul($dec, '16', 0);
-            $dec = bcadd($dec, (string) hexdec($hex[$i]), 0);
-        }
-        return $dec;
+        return \CardanoMintPay\AltPay\Lib\Bn::toDec(\CardanoMintPay\AltPay\Lib\Bn::fromHex($hex));
     }
 }

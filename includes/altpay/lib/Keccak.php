@@ -4,13 +4,17 @@ namespace CardanoMintPay\AltPay\Lib;
 if (!defined('ABSPATH')) exit;
 
 /**
- * Keccak-256 (NOT FIPS 202 SHA-3-256). Used for Ethereum address derivation
- * and EIP-712 / RLP hashing. Differs from SHA-3 only in the padding byte
- * (0x01 vs 0x06).
+ * Keccak-256 (NOT FIPS 202 SHA-3-256). Differs from SHA-3 only in the
+ * padding byte (0x01 vs 0x06). Used for Ethereum address derivation.
  *
- * Implemented over GMP so 64-bit lane math is correct on 32-bit and 64-bit
- * PHP without any bit-overflow worries. Performance is fine for the
- * frequency at which we hash (per-derivation, per-refund).
+ * Implementation strategy: each 64-bit lane is stored as an 8-byte
+ * little-endian string. Bit ops are done with PHP's native string XOR
+ * / AND / OR / NOT (which operate byte-wise on equal-length strings),
+ * and lane rotations go through a temporary bit-string representation.
+ *
+ * No GMP or bcmath required. Slower than a 64-bit integer impl, but
+ * correct on every PHP build (32-bit and 64-bit) and we only hash
+ * once per address derivation.
  */
 class Keccak {
 
@@ -31,26 +35,8 @@ class Keccak {
         '8000000080008081', '8000000000008080', '0000000080000001', '8000000080008008',
     ];
 
-    private static $MASK64 = null;
-    private static $RC = null;
-
-    private static function init(): void {
-        if (self::$MASK64 !== null) return;
-        if (!extension_loaded('gmp')) {
-            throw new \RuntimeException('GMP extension required for Keccak');
-        }
-        self::$MASK64 = gmp_init('0xffffffffffffffff');
-        self::$RC = [];
-        foreach (self::ROUND_CONSTS_HEX as $hex) {
-            self::$RC[] = gmp_init('0x' . $hex);
-        }
-    }
-
     public static function hash256(string $input): string {
-        self::init();
-        $rateBytes = 136; // 1088-bit rate, 256-bit capacity = 256-bit output
-
-        // Keccak-style padding: 0x01 ... 0x80, possibly merged into 0x81.
+        $rateBytes = 136; // 1088-bit rate, 256-bit capacity
         $padLen = $rateBytes - (strlen($input) % $rateBytes);
         if ($padLen === 1) {
             $input .= "\x81";
@@ -58,26 +44,22 @@ class Keccak {
             $input .= "\x01" . str_repeat("\x00", $padLen - 2) . "\x80";
         }
 
-        // 5x5 lane state.
-        $state = array_fill(0, 25, gmp_init(0));
+        $zero = str_repeat("\x00", 8);
+        $state = array_fill(0, 25, $zero); // each lane is an 8-byte LE string
 
         $blocks = strlen($input) / $rateBytes;
         for ($b = 0; $b < $blocks; $b++) {
             $offset = $b * $rateBytes;
             for ($i = 0; $i < $rateBytes / 8; $i++) {
-                $word = substr($input, $offset + $i * 8, 8);
-                // Keccak lanes are little-endian 64-bit.
-                $lane = self::leToGmp($word);
-                $state[$i] = gmp_xor($state[$i], $lane);
+                $lane = substr($input, $offset + $i * 8, 8);
+                $state[$i] = $state[$i] ^ $lane;
             }
             self::keccakF($state);
         }
 
-        // Squeeze 32 bytes (4 lanes) of output.
+        // Squeeze 32 bytes from the first 4 lanes.
         $out = '';
-        for ($i = 0; $i < 4; $i++) {
-            $out .= self::gmpToLe($state[$i]);
-        }
+        for ($i = 0; $i < 4; $i++) $out .= $state[$i];
         return $out;
     }
 
@@ -86,70 +68,76 @@ class Keccak {
     }
 
     private static function keccakF(array &$state): void {
+        $allOnes = "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
+        $rcLanes = [];
+        foreach (self::ROUND_CONSTS_HEX as $hex) {
+            // Round constants are written MSB-first; convert to LE bytes.
+            $rcLanes[] = self::beHexToLeBytes($hex);
+        }
+
         for ($round = 0; $round < self::ROUNDS; $round++) {
             // Theta
             $C = [];
             for ($x = 0; $x < 5; $x++) {
-                $C[$x] = gmp_xor(
-                    gmp_xor(gmp_xor($state[$x], $state[$x + 5]), $state[$x + 10]),
-                    gmp_xor($state[$x + 15], $state[$x + 20])
-                );
+                $C[$x] = $state[$x] ^ $state[$x + 5] ^ $state[$x + 10] ^ $state[$x + 15] ^ $state[$x + 20];
             }
             $D = [];
             for ($x = 0; $x < 5; $x++) {
-                $D[$x] = gmp_xor($C[($x + 4) % 5], self::rotl64($C[($x + 1) % 5], 1));
+                $D[$x] = $C[($x + 4) % 5] ^ self::rotl64Le($C[($x + 1) % 5], 1);
             }
             for ($i = 0; $i < 25; $i++) {
-                $state[$i] = gmp_xor($state[$i], $D[$i % 5]);
+                $state[$i] = $state[$i] ^ $D[$i % 5];
             }
+
             // Rho + Pi
-            $B = array_fill(0, 25, gmp_init(0));
+            $B = array_fill(0, 25, str_repeat("\x00", 8));
             for ($x = 0; $x < 5; $x++) {
                 for ($y = 0; $y < 5; $y++) {
                     $idx    = $x + 5 * $y;
                     $newIdx = $y + 5 * (((2 * $x) + (3 * $y)) % 5);
-                    $B[$newIdx] = self::rotl64($state[$idx], self::RHO_OFFSETS[$idx]);
+                    $B[$newIdx] = self::rotl64Le($state[$idx], self::RHO_OFFSETS[$idx]);
                 }
             }
-            // Chi
+
+            // Chi: state[x][y] = B[x][y] XOR ((NOT B[x+1][y]) AND B[x+2][y])
             for ($y = 0; $y < 5; $y++) {
                 $row = [];
                 for ($x = 0; $x < 5; $x++) $row[$x] = $B[$x + 5 * $y];
                 for ($x = 0; $x < 5; $x++) {
-                    $notNext = gmp_and(gmp_xor($row[($x + 1) % 5], self::$MASK64), self::$MASK64);
-                    $state[$x + 5 * $y] = gmp_xor($row[$x], gmp_and($notNext, $row[($x + 2) % 5]));
+                    $notNext = $row[($x + 1) % 5] ^ $allOnes;
+                    $state[$x + 5 * $y] = $row[$x] ^ ($notNext & $row[($x + 2) % 5]);
                 }
             }
+
             // Iota
-            $state[0] = gmp_xor($state[0], self::$RC[$round]);
+            $state[0] = $state[0] ^ $rcLanes[$round];
         }
     }
 
-    private static function rotl64(\GMP $w, int $n): \GMP {
+    /** Rotate-left a 64-bit little-endian lane by n bits. */
+    private static function rotl64Le(string $lane, int $n): string {
         $n = $n % 64;
-        if ($n === 0) return $w;
-        $left  = gmp_and(gmp_mul($w, gmp_pow(2, $n)), self::$MASK64);
-        $right = gmp_div_q($w, gmp_pow(2, 64 - $n));
-        return gmp_or($left, $right);
-    }
-
-    private static function leToGmp(string $word8): \GMP {
-        // Little-endian: byte 0 is the least significant.
-        $g = gmp_init(0);
+        if ($n === 0) return $lane;
+        // Build MSB-first bit string from the LE lane.
+        $bits = '';
         for ($i = 7; $i >= 0; $i--) {
-            $g = gmp_mul($g, 256);
-            $g = gmp_add($g, ord($word8[$i]));
+            $bits .= str_pad(decbin(ord($lane[$i])), 8, '0', STR_PAD_LEFT);
         }
-        return $g;
-    }
-
-    private static function gmpToLe(\GMP $g): string {
-        $g = gmp_and($g, self::$MASK64);
+        $bits = substr($bits, $n) . substr($bits, 0, $n);
+        // Convert back to LE bytes.
         $out = '';
         for ($i = 0; $i < 8; $i++) {
-            $out .= chr(gmp_intval(gmp_and($g, 0xff)));
-            $g = gmp_div_q($g, 256);
+            $byteBits = substr($bits, 64 - 8 * ($i + 1), 8);
+            $out .= chr(bindec($byteBits));
         }
         return $out;
+    }
+
+    private static function beHexToLeBytes(string $hex): string {
+        // Round constants are 16 hex chars = 8 bytes MSB-first. Convert to LE.
+        $beBytes = hex2bin($hex);
+        $le = '';
+        for ($i = strlen($beBytes) - 1; $i >= 0; $i--) $le .= $beBytes[$i];
+        return $le;
     }
 }
