@@ -4,24 +4,23 @@
     // Customer-side payment-method picker for the [cardano-mint] shortcode.
     // Talks to /wp-json/cardano-mint/v1/altpay/{quote,status,cancel}.
     //
-    // The picker only renders when an admin has flipped on
-    // cardano_mint_altpay_enabled AND configured at least one chain wallet.
-    // ADA stays the default so existing Cardano-only sites are unaffected.
+    // Lifecycle:
+    //   1. Customer clicks a chain chip (BTC / ETH / SOL).
+    //   2. Pay panel opens in PRE-INIT state explaining the flow + showing
+    //      a single "Pay with X" button.
+    //   3. Clicking that fires /altpay/quote, persists the session, and
+    //      flips the panel to ACTIVE state with address, amount, status.
+    //   4. ACTIVE state polls /altpay/status every 10s. "Cancel payment
+    //      session" link returns to step 2 after a confirm.
     //
-    // Persistence: a pending invoice is stored in localStorage under
-    // kg_altpay_active_<mint_id> so closing the modal or refreshing the
-    // page doesn't burn the address. The server side of /altpay/quote is
-    // also idempotent (returns the existing pending invoice for the same
-    // mint+chain+customer tuple), so even a wiped browser will reattach
-    // to the right HD-derived address.
+    // Sessions are stored per-{mint, chain} so a customer can have BTC,
+    // ETH, and SOL pending simultaneously. Resume banners render one per
+    // active session below the mint button.
 
     const cfg = window.cardanoAltPayCheckout || {};
 
     /* ── Currency formatting ────────────────────────────────────── */
 
-    // Real on-chain decimals (used for the precise value that goes into
-    // localStorage / URLs / debug). Display decimals are capped tighter
-    // because 0.04303092632675104 ETH is unreadable in a UI.
     const CHAIN_DECIMALS = { btc: 8, eth: 18, sol: 9 };
     const DISPLAY_DECIMALS = { btc: 8, eth: 6, sol: 4 };
 
@@ -35,9 +34,6 @@
             const whole = (big / base).toString();
             const frac = (big % base).toString().padStart(decimals, '0');
             const displayDp = DISPLAY_DECIMALS[chain] != null ? DISPLAY_DECIMALS[chain] : decimals;
-            // Trim fractional part to displayDp (no rounding, just slice — under
-            // a 1% tolerance band it doesn't matter, and rounding up could lead
-            // a customer to overpay slightly).
             const fracTrimmed = frac.slice(0, displayDp).replace(/0+$/, '');
             major = fracTrimmed ? whole + '.' + fracTrimmed : whole;
         } catch (e) {
@@ -85,27 +81,34 @@
         });
     }
 
-    /* ── localStorage persistence ───────────────────────────────── */
+    /* ── Per-chain localStorage persistence ─────────────────────── */
 
     const STORAGE_PREFIX = 'kg_altpay_active_';
-    function storageKey(mintId) { return STORAGE_PREFIX + String(mintId); }
+    function storageKey(mintId, chain) { return STORAGE_PREFIX + String(mintId) + '_' + chain; }
 
-    function persistInvoice(mintId, payload) {
-        try { localStorage.setItem(storageKey(mintId), JSON.stringify(payload)); } catch (e) {}
+    function persistInvoice(mintId, chain, payload) {
+        try { localStorage.setItem(storageKey(mintId, chain), JSON.stringify(payload)); } catch (e) {}
     }
-    function readInvoice(mintId) {
+    function readInvoice(mintId, chain) {
         try {
-            const raw = localStorage.getItem(storageKey(mintId));
+            const raw = localStorage.getItem(storageKey(mintId, chain));
             if (!raw) return null;
             const obj = JSON.parse(raw);
             if (!obj || !obj.invoice_id) return null;
-            // Expiry check on the client; the server is still authoritative.
             if (obj.expires_at && new Date(obj.expires_at).getTime() < Date.now()) return null;
             return obj;
         } catch (e) { return null; }
     }
-    function clearInvoice(mintId) {
-        try { localStorage.removeItem(storageKey(mintId)); } catch (e) {}
+    function clearInvoice(mintId, chain) {
+        try { localStorage.removeItem(storageKey(mintId, chain)); } catch (e) {}
+    }
+    function listActiveInvoices(mintId) {
+        const out = [];
+        for (const chain of ['btc','eth','sol']) {
+            const inv = readInvoice(mintId, chain);
+            if (inv) out.push({ chain: chain, invoice: inv });
+        }
+        return out;
     }
 
     /* ── Wake lock (best effort) ────────────────────────────────── */
@@ -115,7 +118,7 @@
         if (wakeLockHandle) return;
         if (!('wakeLock' in navigator)) return;
         try { wakeLockHandle = await navigator.wakeLock.request('screen'); }
-        catch (e) { /* user can decline; not fatal */ }
+        catch (e) {}
     }
     function releaseWakeLock() {
         if (wakeLockHandle && typeof wakeLockHandle.release === 'function') {
@@ -143,27 +146,34 @@
         const picker = document.getElementById('altpay-picker');
         if (!picker) return;
 
-        const mintBtn       = document.getElementById('cardano-mint-now-btn');
         const proceedBtn    = document.getElementById('proceed-to-confirm');
         const walletDisplay = document.getElementById('wallet-address-display');
         const invoiceField  = document.getElementById('altpay-invoice-id');
         const chainField    = document.getElementById('altpay-chain');
         const payPanel      = document.getElementById('altpay-pay-panel');
+        const preinit       = payPanel.querySelector('[data-altpay-state="preinit"]');
+        const active        = payPanel.querySelector('[data-altpay-state="active"]');
         const addrEl        = picker.querySelector('.altpay-address');
         const amountEl      = picker.querySelector('.altpay-amount-display');
         const statusText    = picker.querySelector('.altpay-status-text');
         const observedEl    = picker.querySelector('.altpay-observed');
         const mintId        = parseInt(picker.getAttribute('data-mint-id') || '0', 10);
 
-        // ── Resume banner injected outside the modal ─────────────
-        injectResumeBanner(mintId);
+        renderResumeBanners();
 
-        // Show picker once the wallet display flips visible.
+        // Reveal picker when wallet display flips visible.
         const observer = new MutationObserver(function () {
             if (walletDisplay && walletDisplay.style.display !== 'none') {
                 picker.removeAttribute('hidden');
-                // If a pending invoice already exists in storage, restore it.
-                tryRestoreFromStorage();
+                // Auto-restore the most recently created session when the
+                // modal opens. The user can still click another chip.
+                const all = listActiveInvoices(mintId);
+                if (all.length > 0) {
+                    const newest = all.sort(function (a, b) {
+                        return new Date(b.invoice.expires_at).getTime() - new Date(a.invoice.expires_at).getTime();
+                    })[0];
+                    selectChain(newest.chain);
+                }
             }
         });
         if (walletDisplay) observer.observe(walletDisplay, { attributes: true, attributeFilter: ['style'] });
@@ -178,42 +188,10 @@
 
         let pollHandle = null;
         let countdownHandle = null;
-        let currentExpiresAt = null;
 
         function getCustomerCardanoAddress() {
             const el = document.getElementById('connected-wallet-address');
             return el ? (el.textContent || '').trim() : '';
-        }
-
-        function tryRestoreFromStorage() {
-            const stored = readInvoice(mintId);
-            if (!stored) return;
-            if (stored.chain === 'ada') return;
-
-            // Don't restore if the connected wallet differs from when the
-            // invoice was created — the bind would fail server-side anyway.
-            const currentCardano = getCustomerCardanoAddress();
-            if (currentCardano && stored.customer_cardano_address && currentCardano !== stored.customer_cardano_address) {
-                return;
-            }
-
-            picker.querySelectorAll('.altpay-chip').forEach(function (b) {
-                b.classList.toggle('is-active', b.getAttribute('data-altpay-chain') === stored.chain);
-            });
-            chainField.value = stored.chain;
-            invoiceField.value = stored.invoice_id;
-            payPanel.removeAttribute('hidden');
-
-            addrEl.textContent = stored.address;
-            renderAmount(stored.chain, stored.expected_amount_minor);
-
-            currentExpiresAt = stored.expires_at;
-            startCountdown(currentExpiresAt);
-
-            setStatus('pending', 'restored — checking status…');
-            setProceedEnabled(false, 'Waiting for ' + stored.chain.toUpperCase() + ' payment');
-            startPolling(stored.invoice_id);
-            tryWakeLock();
         }
 
         function renderAmount(chain, minor) {
@@ -222,60 +200,107 @@
                 + '<span class="altpay-amount-minor">(' + Number(f.minor).toLocaleString('en-US') + ' ' + chainMinorLabel(chain) + ')</span>';
         }
 
-        function selectChain(chain) {
+        function setChipActive(chain) {
             picker.querySelectorAll('.altpay-chip').forEach(function (b) {
                 b.classList.toggle('is-active', b.getAttribute('data-altpay-chain') === chain);
             });
             chainField.value = chain;
+            // Update the "Pay with X" label inside preinit.
+            picker.querySelectorAll('.altpay-chain-label').forEach(function (el) {
+                el.textContent = chain.toUpperCase();
+            });
+        }
+
+        function showState(state) {
+            if (state === 'preinit') {
+                payPanel.removeAttribute('hidden');
+                preinit.removeAttribute('hidden');
+                active.setAttribute('hidden', '');
+            } else if (state === 'active') {
+                payPanel.removeAttribute('hidden');
+                preinit.setAttribute('hidden', '');
+                active.removeAttribute('hidden');
+            } else {
+                payPanel.setAttribute('hidden', '');
+            }
+        }
+
+        function selectChain(chain) {
+            setChipActive(chain);
 
             if (chain === 'ada') {
-                hidePayPanel();
+                stopPolling();
+                stopCountdown();
+                showState('hidden');
                 invoiceField.value = '';
-                clearInvoice(mintId);
                 setProceedEnabled(true, 'Continue to Mint');
                 releaseWakeLock();
                 return;
             }
 
+            const stored = readInvoice(mintId, chain);
+            if (stored) {
+                attachToActiveInvoice(chain, stored);
+            } else {
+                showState('preinit');
+                invoiceField.value = '';
+                setProceedEnabled(false, 'Waiting for ' + chain.toUpperCase() + ' payment');
+                stopPolling();
+                stopCountdown();
+            }
+        }
+
+        function attachToActiveInvoice(chain, stored) {
+            // Bail if the connected Cardano wallet differs from the one the
+            // session was bound to — the server-side check would fail anyway.
+            const currentCardano = getCustomerCardanoAddress();
+            if (currentCardano && stored.customer_cardano_address && currentCardano !== stored.customer_cardano_address) {
+                showState('preinit');
+                return;
+            }
+
+            invoiceField.value = stored.invoice_id;
+            addrEl.textContent = stored.address;
+            renderAmount(chain, stored.expected_amount_minor);
+            startCountdown(stored.expires_at);
+            setStatus('pending', 'restored — checking status…');
+            setProceedEnabled(false, 'Waiting for ' + chain.toUpperCase() + ' payment');
+            showState('active');
+            startPolling(stored.invoice_id);
+            tryWakeLock();
+        }
+
+        function startPaymentSession() {
+            const chain = chainField.value;
+            if (chain === 'ada' || !chain) return;
             const customerCardano = getCustomerCardanoAddress();
             if (!customerCardano) { alert('Connect your Cardano wallet first.'); return; }
 
-            payPanel.removeAttribute('hidden');
-            addrEl.textContent  = '…';
-            amountEl.textContent = 'fetching quote…';
-            setStatus('pending', 'requesting quote…');
-            observedEl.setAttribute('hidden', '');
-            setProceedEnabled(false, 'Waiting for ' + chain.toUpperCase() + ' payment');
+            const startBtn = preinit.querySelector('[data-altpay-action="start"]');
+            if (startBtn) { startBtn.disabled = true; startBtn.textContent = 'Generating address…'; }
 
             rest('/altpay/quote', 'POST', {
                 mint_id: mintId,
                 payment_method: chain,
                 customer_cardano_address: customerCardano,
             }).then(function (q) {
-                invoiceField.value = q.invoice_id;
-                addrEl.textContent  = q.address;
-                renderAmount(chain, q.expected_amount_minor || '0');
-
-                currentExpiresAt = q.expires_at;
-                startCountdown(currentExpiresAt);
-
-                persistInvoice(mintId, {
+                const stored = {
                     invoice_id: q.invoice_id,
                     chain: chain,
                     address: q.address,
                     expected_amount_minor: q.expected_amount_minor,
                     expires_at: q.expires_at,
                     customer_cardano_address: customerCardano,
-                });
-
-                setStatus('pending', q.reused ? 'resumed earlier invoice…' : 'waiting for payment…');
-                startPolling(q.invoice_id);
-                tryWakeLock();
-                injectResumeBanner(mintId);
+                };
+                persistInvoice(mintId, chain, stored);
+                attachToActiveInvoice(chain, stored);
+                renderResumeBanners();
             }).catch(function (e) {
-                setStatus('error', 'quote failed: ' + e.message);
-                amountEl.textContent = 'failed';
-                setProceedEnabled(false, 'Continue to Mint');
+                if (startBtn) {
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = 'Pay with <span class="altpay-chain-label">' + chain.toUpperCase() + '</span>';
+                }
+                alert('Could not start ' + chain.toUpperCase() + ' payment: ' + e.message);
             });
         }
 
@@ -288,11 +313,14 @@
         }
 
         function startPolling(invoiceId) {
-            if (pollHandle) clearInterval(pollHandle);
+            stopPolling();
             pollHandle = setInterval(function () { pollOnce(invoiceId); }, 10000);
             pollOnce(invoiceId);
         }
-
+        function stopPolling() {
+            if (pollHandle) clearInterval(pollHandle);
+            pollHandle = null;
+        }
         function pollOnce(invoiceId) {
             rest('/altpay/status?invoice_id=' + encodeURIComponent(invoiceId)).then(function (s) {
                 if (!s) return;
@@ -308,25 +336,20 @@
                     observedEl.textContent = ' observed ' + f.major + ' ' + f.symbol;
                 }
                 if (s.status === 'funded') {
-                    clearInterval(pollHandle); pollHandle = null;
+                    stopPolling();
                     stopCountdown();
                     setProceedEnabled(true, 'Payment received — Continue to Mint');
                     releaseWakeLock();
-                } else if (['expired', 'cancelled'].indexOf(s.status) !== -1) {
-                    clearInterval(pollHandle); pollHandle = null;
+                } else if (['expired', 'cancelled', 'consumed'].indexOf(s.status) !== -1) {
+                    stopPolling();
                     stopCountdown();
-                    clearInvoice(mintId);
-                    removeResumeBanner();
+                    clearInvoice(mintId, chainField.value);
+                    renderResumeBanners();
+                    if (s.status !== 'consumed') showState('preinit');
                     setProceedEnabled(false, 'Continue to Mint');
                     releaseWakeLock();
-                } else if (s.status === 'consumed') {
-                    clearInterval(pollHandle); pollHandle = null;
-                    stopCountdown();
-                    clearInvoice(mintId);
-                    removeResumeBanner();
-                    releaseWakeLock();
                 }
-            }).catch(function () { /* transient errors are fine */ });
+            }).catch(function () {});
         }
 
         function startCountdown(expiresAtIso) {
@@ -339,82 +362,114 @@
         function stopCountdown() {
             if (countdownHandle) clearInterval(countdownHandle);
             countdownHandle = null;
-            const c = picker.querySelector('.altpay-countdown');
+            const c = active.querySelector('.altpay-countdown');
             if (c) c.remove();
         }
         function updateCountdownLine(expMs) {
-            let el = picker.querySelector('.altpay-countdown');
+            let el = active.querySelector('.altpay-countdown');
             if (!el) {
                 el = document.createElement('p');
                 el.className = 'altpay-countdown';
-                payPanel.appendChild(el);
+                active.appendChild(el);
             }
             const remaining = expMs - Date.now();
             el.textContent = 'This payment window expires in ' + formatRemaining(remaining) + '. Keep this tab open or use Resume to come back.';
             if (remaining <= 0) stopCountdown();
         }
 
-        function hidePayPanel() {
-            payPanel.setAttribute('hidden', '');
-            if (pollHandle) { clearInterval(pollHandle); pollHandle = null; }
-            stopCountdown();
-        }
+        /* ── Click handlers ─────────────────────────────────────── */
 
         picker.addEventListener('click', function (ev) {
             const chipBtn = ev.target.closest('[data-altpay-chain]');
             if (chipBtn) { selectChain(chipBtn.getAttribute('data-altpay-chain')); return; }
 
-            const action = ev.target.getAttribute('data-altpay-action');
-            if (action === 'copy-address') {
-                copyText(addrEl.textContent || '').then(function () {
-                    ev.target.textContent = 'Copied';
-                    setTimeout(function () { ev.target.textContent = 'Copy'; }, 1500);
-                });
-            } else if (action === 'cancel') {
-                const inv = invoiceField.value;
-                if (inv) rest('/altpay/cancel', 'POST', { invoice_id: parseInt(inv, 10) }).catch(function () {});
-                invoiceField.value = '';
-                clearInvoice(mintId);
-                removeResumeBanner();
-                hidePayPanel();
-                releaseWakeLock();
+            const action = ev.target.closest('[data-altpay-action]');
+            if (!action) return;
+            const which = action.getAttribute('data-altpay-action');
+
+            if (which === 'start') {
+                startPaymentSession();
+            } else if (which === 'back') {
                 selectChain('ada');
+            } else if (which === 'copy-address') {
+                copyText(addrEl.textContent || '').then(function () {
+                    action.textContent = 'Copied';
+                    setTimeout(function () { action.textContent = 'Copy'; }, 1500);
+                });
+            } else if (which === 'cancel') {
+                const chain = chainField.value;
+                const inv = invoiceField.value;
+                if (!window.confirm('Cancel this ' + chain.toUpperCase() + ' payment session? The deposit address will be discarded.')) return;
+                if (inv) rest('/altpay/cancel', 'POST', { invoice_id: parseInt(inv, 10) }).catch(function () {});
+                clearInvoice(mintId, chain);
+                renderResumeBanners();
+                stopPolling();
+                stopCountdown();
+                invoiceField.value = '';
+                showState('preinit');
+                setProceedEnabled(false, 'Waiting for ' + chain.toUpperCase() + ' payment');
+                releaseWakeLock();
             }
         });
 
         // Default state.
         setProceedEnabled(true, 'Continue to Mint');
-    }
+        setChipActive('ada');
 
-    /* ── Resume banner (lives outside the modal) ───────────────── */
+        /* ── Resume banners (one per active session) ────────────── */
 
-    function injectResumeBanner(mintId) {
-        removeResumeBanner();
-        const stored = readInvoice(mintId);
-        if (!stored || stored.chain === 'ada') return;
-        const wrapper = document.querySelector('.cardano-shortcode-wrapper');
-        if (!wrapper) return;
+        function renderResumeBanners() {
+            removeResumeBanners();
+            const wrapper = document.querySelector('.cardano-shortcode-wrapper');
+            if (!wrapper) return;
+            const all = listActiveInvoices(mintId);
+            if (all.length === 0) return;
 
-        const banner = document.createElement('div');
-        banner.className = 'altpay-resume-banner';
-        banner.dataset.altpayResume = '1';
-        banner.innerHTML =
-            '<span class="altpay-resume-dot" aria-hidden="true"></span>' +
-            '<span class="altpay-resume-msg">' +
-                'Pending ' + stored.chain.toUpperCase() + ' payment in progress. ' +
-            '</span>' +
-            '<button type="button" class="altpay-btn" data-altpay-resume>Resume mint</button>';
-        wrapper.parentNode.insertBefore(banner, wrapper.nextSibling);
+            const host = document.createElement('div');
+            host.className = 'altpay-resume-host';
+            host.dataset.altpayResumeHost = '1';
 
-        banner.addEventListener('click', function (ev) {
-            const target = ev.target.closest('[data-altpay-resume]');
-            if (!target) return;
-            const mintNowBtn = document.getElementById('cardano-mint-now-btn');
-            if (mintNowBtn) mintNowBtn.click();
-        });
-    }
-    function removeResumeBanner() {
-        document.querySelectorAll('[data-altpay-resume="1"]').forEach(function (n) { n.remove(); });
+            all.forEach(function (entry) {
+                const chain = entry.chain;
+                const banner = document.createElement('div');
+                banner.className = 'altpay-resume-banner';
+                banner.dataset.altpayResumeChain = chain;
+                banner.innerHTML =
+                    '<span class="altpay-resume-dot" aria-hidden="true"></span>' +
+                    '<span class="altpay-resume-msg">Pending <strong>' + chain.toUpperCase() + '</strong> payment in progress.</span>' +
+                    '<button type="button" class="altpay-btn" data-altpay-resume="' + chain + '">Resume mint</button>' +
+                    '<button type="button" class="altpay-resume-cancel" data-altpay-resume-cancel="' + chain + '" title="Cancel this session">&times;</button>';
+                host.appendChild(banner);
+            });
+
+            wrapper.parentNode.insertBefore(host, wrapper.nextSibling);
+
+            host.addEventListener('click', function (ev) {
+                const resumeBtn = ev.target.closest('[data-altpay-resume]');
+                if (resumeBtn) {
+                    const chain = resumeBtn.getAttribute('data-altpay-resume');
+                    const mintNowBtn = document.getElementById('cardano-mint-now-btn');
+                    if (mintNowBtn) mintNowBtn.click();
+                    // Defer chip selection to give the modal a tick to mount.
+                    setTimeout(function () { selectChain(chain); }, 300);
+                    return;
+                }
+                const cancelBtn = ev.target.closest('[data-altpay-resume-cancel]');
+                if (cancelBtn) {
+                    const chain = cancelBtn.getAttribute('data-altpay-resume-cancel');
+                    if (!window.confirm('Cancel the pending ' + chain.toUpperCase() + ' payment? You will need to start a fresh session to pay with ' + chain.toUpperCase() + ' for this mint.')) return;
+                    const stored = readInvoice(mintId, chain);
+                    if (stored && stored.invoice_id) {
+                        rest('/altpay/cancel', 'POST', { invoice_id: stored.invoice_id }).catch(function () {});
+                    }
+                    clearInvoice(mintId, chain);
+                    renderResumeBanners();
+                }
+            });
+        }
+        function removeResumeBanners() {
+            document.querySelectorAll('[data-altpay-resume-host="1"]').forEach(function (n) { n.remove(); });
+        }
     }
 
     if (document.readyState === 'loading') {
