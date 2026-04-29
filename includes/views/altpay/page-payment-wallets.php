@@ -12,11 +12,12 @@ if (!defined('ABSPATH')) exit;
 use CardanoMintPay\Controllers\AltPayAdminController;
 
 $tabs = [
-    'btc'      => 'BTC',
-    'eth'      => 'ETH',
-    'sol'      => 'SOL',
-    'invoices' => 'Invoices',
-    'settings' => 'Settings',
+    'dashboard' => 'Dashboard',
+    'btc'       => 'BTC',
+    'eth'       => 'ETH',
+    'sol'       => 'SOL',
+    'invoices'  => 'Invoices',
+    'settings'  => 'Settings',
 ];
 ?>
 <div class="wrap kg-altpay-wrap">
@@ -51,7 +52,9 @@ $tabs = [
     <div class="kg-altpay-tab-body" style="margin-top: var(--space-md, 18px);">
         <?php
         $views_dir = plugin_dir_path(__FILE__);
-        if (in_array($tab, ['btc','eth','sol'], true)) {
+        if ($tab === 'dashboard') {
+            include $views_dir . 'tab-dashboard.php';
+        } elseif (in_array($tab, ['btc','eth','sol'], true)) {
             $chain = $tab;
             include $views_dir . 'tab-chain.php';
         } elseif ($tab === 'invoices') {

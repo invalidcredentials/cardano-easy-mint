@@ -243,6 +243,86 @@ class AltPayService {
         return $result;
     }
 
+    /**
+     * Operator-side withdrawal. Walks the parent wallet's known invoices,
+     * checks live balances, and issues a single tx from whichever child
+     * address holds funds — typically the most-funded one. ETH and SOL
+     * cap out at the highest single child; BTC could aggregate UTXOs
+     * across many children but for V1 we keep it single-source so the
+     * operator can verify what moves before scaling.
+     *
+     * @return array|\WP_Error {tx_hash, raw_tx, source_index, source_balance_minor}
+     */
+    public static function send_from_wallet(int $walletId, string $toAddress, string $amountMinor) {
+        $wallet = ChainWalletModel::get($walletId);
+        if (!$wallet) return new \WP_Error('altpay_no_wallet', 'wallet not found');
+        $provider = self::provider($wallet['chain']);
+        if (!$provider) return new \WP_Error('altpay_unknown_chain', 'unknown chain');
+        if ($amountMinor === '' || preg_match('/[^0-9]/', $amountMinor) || $amountMinor === '0') {
+            return new \WP_Error('altpay_bad_amount', 'amount_minor must be a positive integer string');
+        }
+        if ($toAddress === '') return new \WP_Error('altpay_bad_address', 'destination required');
+
+        // Find the most-funded child address tied to this wallet. We only
+        // walk indices that an invoice was issued for; orphan derivations
+        // shouldn't have funds anyway.
+        global $wpdb;
+        $tbl = ChainInvoiceModel::table();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, derivation_index, address FROM `$tbl` WHERE parent_wallet_id = %d ORDER BY derivation_index ASC",
+            $walletId
+        ), ARRAY_A);
+        if (empty($rows)) return new \WP_Error('altpay_no_children', 'no derived addresses on this wallet yet');
+
+        $bestIndex = -1;
+        $bestBalance = '0';
+        $bestInvoiceId = 0;
+        foreach ($rows as $r) {
+            $bal = $provider->checkAddressBalance($r['address'], $wallet['network']);
+            $minor = (string) ($bal['balance_minor'] ?? '0');
+            if (function_exists('bccomp')) {
+                if (bccomp($minor, $bestBalance, 0) > 0) {
+                    $bestBalance = $minor;
+                    $bestIndex = (int) $r['derivation_index'];
+                    $bestInvoiceId = (int) $r['id'];
+                }
+            } else if ((int) $minor > (int) $bestBalance) {
+                $bestBalance = $minor;
+                $bestIndex = (int) $r['derivation_index'];
+                $bestInvoiceId = (int) $r['id'];
+            }
+        }
+        if ($bestIndex < 0 || $bestBalance === '0') {
+            return new \WP_Error('altpay_no_funds', 'no child address holds funds yet');
+        }
+        if (function_exists('bccomp') && bccomp($amountMinor, $bestBalance, 0) > 0) {
+            return new \WP_Error('altpay_insufficient', 'requested amount exceeds the most-funded child (' . $bestBalance . ')');
+        }
+
+        try {
+            $result = $provider->buildAndBroadcastRefund($walletId, $bestIndex, $toAddress, $amountMinor);
+        } catch (\Throwable $e) {
+            error_log('[CardanoMint AltPay] send_from_wallet failed: ' . $e->getMessage());
+            return new \WP_Error('altpay_send_failed', $e->getMessage());
+        }
+
+        // Audit log against whichever invoice the funds were drawn from.
+        if ($bestInvoiceId > 0) {
+            ChainTxLogModel::append([
+                'invoice_id'   => $bestInvoiceId,
+                'tx_hash'      => (string) ($result['tx_hash'] ?? ''),
+                'direction'    => 'sweep',
+                'amount_minor' => $amountMinor,
+                'raw_payload'  => ['to' => $toAddress, 'raw_tx' => $result['raw_tx'] ?? '', 'source_index' => $bestIndex],
+            ]);
+        }
+
+        return array_merge($result, [
+            'source_index'         => $bestIndex,
+            'source_balance_minor' => $bestBalance,
+        ]);
+    }
+
     /** Cron-driven sweep across pending invoices. */
     public static function watcher_tick(): void {
         ChainInvoiceModel::expire_past_due();

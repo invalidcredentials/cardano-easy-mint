@@ -131,6 +131,9 @@ $expected_for_1usd = AltPayService::provider($chain)?->expectedAmountMinor(1.0, 
                         <button type="button" class="button button-small" data-action="altpay-archive" data-wallet-id="<?php echo esc_attr($w['id']); ?>">
                             Archive
                         </button>
+                        <p style="margin: 4px 0 0 0; font-size: 11px; color: #888;">
+                            Withdraw funds from the <a href="<?php echo esc_url(AltPayAdminController::pageUrl(['tab' => 'dashboard'])); ?>">Dashboard</a>.
+                        </p>
                     </td>
                 </tr>
             <?php endforeach; ?>

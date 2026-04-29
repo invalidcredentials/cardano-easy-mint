@@ -32,6 +32,8 @@ class AltPayAdminController {
         add_action('wp_ajax_cardano_altpay_archive_wallet',   [self::class, 'ajaxArchiveWallet']);
         add_action('wp_ajax_cardano_altpay_rescan_invoice',   [self::class, 'ajaxRescanInvoice']);
         add_action('wp_ajax_cardano_altpay_refund_invoice',   [self::class, 'ajaxRefundInvoice']);
+        add_action('wp_ajax_cardano_altpay_send_from_wallet', [self::class, 'ajaxSendFromWallet']);
+        add_action('wp_ajax_cardano_altpay_wallet_balances',  [self::class, 'ajaxWalletBalances']);
         add_action('wp_ajax_cardano_altpay_save_settings',    [self::class, 'ajaxSaveSettings']);
         add_action('wp_ajax_cardano_altpay_reveal_mnemonic',  [self::class, 'ajaxRevealMnemonic']);
         add_action('admin_enqueue_scripts',                   [self::class, 'enqueueAdminAssets']);
@@ -66,9 +68,9 @@ class AltPayAdminController {
     }
 
     public static function renderPage(): void {
-        $tab = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'btc';
-        $allowed = ['btc', 'eth', 'sol', 'invoices', 'settings'];
-        if (!in_array($tab, $allowed, true)) $tab = 'btc';
+        $tab = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'dashboard';
+        $allowed = ['dashboard', 'btc', 'eth', 'sol', 'invoices', 'settings'];
+        if (!in_array($tab, $allowed, true)) $tab = 'dashboard';
         $cap = function_exists('cardanomint_altpay_capability_check')
             ? cardanomint_altpay_capability_check()
             : ['ok' => true, 'missing' => []];
@@ -178,6 +180,72 @@ class AltPayAdminController {
         AltPayService::reconcile($inv);
         $fresh = ChainInvoiceModel::get($id);
         wp_send_json_success(['invoice' => $fresh]);
+    }
+
+    /**
+     * Aggregate balances for a parent wallet across all known child
+     * invoices. Used by the "Send funds" panel to show how much is
+     * currently sittable on this wallet before the operator picks an
+     * amount.
+     */
+    public static function ajaxWalletBalances(): void {
+        check_ajax_referer(self::NONCE, 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'forbidden']);
+        $walletId = (int) ($_POST['wallet_id'] ?? 0);
+        $wallet = ChainWalletModel::get($walletId);
+        if (!$wallet) wp_send_json_error(['message' => 'wallet not found']);
+        $provider = AltPayService::provider($wallet['chain']);
+        if (!$provider) wp_send_json_error(['message' => 'unknown chain']);
+
+        global $wpdb;
+        $tbl = \CardanoMintPay\Models\ChainInvoiceModel::table();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT derivation_index, address FROM `$tbl` WHERE parent_wallet_id = %d ORDER BY derivation_index ASC",
+            $walletId
+        ), ARRAY_A);
+
+        $children = [];
+        $total = '0';
+        foreach ($rows as $r) {
+            $bal = $provider->checkAddressBalance($r['address'], $wallet['network']);
+            $minor = (string) ($bal['balance_minor'] ?? '0');
+            $children[] = [
+                'index'         => (int) $r['derivation_index'],
+                'address'       => $r['address'],
+                'balance_minor' => $minor,
+            ];
+            if (function_exists('bcadd')) $total = bcadd($total, $minor, 0);
+            else $total = (string) ((int) $total + (int) $minor);
+        }
+        usort($children, function ($a, $b) {
+            if (function_exists('bccomp')) return bccomp($b['balance_minor'], $a['balance_minor'], 0);
+            return ((int) $b['balance_minor']) - ((int) $a['balance_minor']);
+        });
+        wp_send_json_success([
+            'wallet_id'   => $walletId,
+            'chain'       => $wallet['chain'],
+            'network'     => $wallet['network'],
+            'total_minor' => $total,
+            'children'    => $children,
+        ]);
+    }
+
+    public static function ajaxSendFromWallet(): void {
+        check_ajax_referer(self::NONCE, 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'forbidden']);
+
+        $walletId = (int) ($_POST['wallet_id'] ?? 0);
+        $toAddr   = sanitize_text_field($_POST['to_address'] ?? '');
+        $amount   = preg_replace('/[^0-9]/', '', (string) ($_POST['amount_minor'] ?? ''));
+
+        if ($walletId <= 0)   wp_send_json_error(['message' => 'wallet_id required']);
+        if ($toAddr === '')   wp_send_json_error(['message' => 'destination required']);
+        if ($amount === '' || $amount === '0') wp_send_json_error(['message' => 'amount_minor required']);
+
+        $res = AltPayService::send_from_wallet($walletId, $toAddr, $amount);
+        if (is_wp_error($res)) wp_send_json_error(['message' => $res->get_error_message()]);
+
+        wp_send_json_success($res);
     }
 
     public static function ajaxRefundInvoice(): void {
