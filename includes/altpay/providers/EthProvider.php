@@ -7,6 +7,9 @@ use CardanoMintPay\AltPay\Bip32Secp;
 use CardanoMintPay\AltPay\Encoding\KeccakAddress;
 use CardanoMintPay\AltPay\Rpc\EthRpcClient;
 use CardanoMintPay\Models\ChainWalletModel;
+use CardanoMintPay\AltPay\Lib\Secp256k1;
+use CardanoMintPay\AltPay\Lib\Keccak;
+use CardanoMintPay\AltPay\Lib\Rlp;
 
 if (!defined('ABSPATH')) exit;
 
@@ -81,7 +84,63 @@ class EthProvider implements ChainPaymentProvider {
     }
 
     public function buildAndBroadcastRefund(int $walletId, int $childIndex, string $toAddr, string $amountMinor): array {
-        throw new \RuntimeException('ETH refund signing is Phase 5');
+        $wallet = ChainWalletModel::get($walletId);
+        if (!$wallet) throw new \RuntimeException('parent wallet not found');
+        $xprv = ChainWalletModel::get_xprv($walletId);
+        if ($xprv === '') throw new \RuntimeException('xprv decrypt failed');
+
+        try {
+            $master  = $this->parse($xprv);
+            $account = \CardanoMintPay\AltPay\Bip32Secp::derivePath($master, "m/44'/60'/0'/0");
+            $child   = \CardanoMintPay\AltPay\Bip32Secp::ckdPriv($account, $childIndex);
+            $priv32  = $child['k'];
+            $pub     = \CardanoMintPay\AltPay\Bip32Secp::pubFromPriv($priv32);
+            $fromAddr = \CardanoMintPay\AltPay\Encoding\KeccakAddress::fromCompressedPubkey($pub);
+
+            $rpc      = new EthRpcClient();
+            $network  = $wallet['network'] ?? 'mainnet';
+            $chainId  = $rpc->getChainId($network);
+            $nonce    = $rpc->getNonce($network, $fromAddr);
+            $fees     = $rpc->getEip1559Fees($network);
+            $gasLimit = '21000'; // simple ETH transfer
+
+            // Validate the destination is hex 0x + 20 bytes.
+            $toHex = strtolower(ltrim($toAddr, '0x'));
+            if (!preg_match('/^[0-9a-f]{40}$/', $toHex)) {
+                throw new \InvalidArgumentException('destination must be a 0x-prefixed 20-byte hex address');
+            }
+            $toBytes = hex2bin($toHex);
+
+            // Type-2 (EIP-1559) tx fields:
+            //   [chainId, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to, value, data, accessList]
+            $unsignedFields = [
+                Rlp::uint((string) $chainId),
+                Rlp::uint((string) $nonce),
+                Rlp::uint($fees['tip']),
+                Rlp::uint($fees['maxFee']),
+                Rlp::uint($gasLimit),
+                $toBytes,
+                Rlp::uint($amountMinor),
+                '',          // empty data
+                [],          // empty access list
+            ];
+            $unsignedRlp = Rlp::encode($unsignedFields);
+            $sigHash     = Keccak::hash256("\x02" . $unsignedRlp);
+            $sig         = Secp256k1::sign($priv32, $sigHash);
+
+            $signedFields = $unsignedFields;
+            $signedFields[] = Rlp::uint((string) $sig['v']); // yParity (0 or 1)
+            $signedFields[] = ltrim($sig['r'], "\x00");
+            $signedFields[] = ltrim($sig['s'], "\x00");
+            $rawTx = "\x02" . Rlp::encode($signedFields);
+
+            $hash = $rpc->sendRawTransaction($network, '0x' . bin2hex($rawTx));
+            if (!$hash) throw new \RuntimeException('eth_sendRawTransaction returned no hash');
+            return ['tx_hash' => $hash, 'raw_tx' => '0x' . bin2hex($rawTx)];
+        } finally {
+            if (isset($priv32)) { $priv32 = null; unset($priv32); }
+            $xprv = null; unset($xprv);
+        }
     }
 
     public function explorerTxUrl(string $hash, string $network): string {

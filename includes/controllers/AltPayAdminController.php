@@ -31,6 +31,7 @@ class AltPayAdminController {
         add_action('wp_ajax_cardano_altpay_import_wallet',    [self::class, 'ajaxImportWallet']);
         add_action('wp_ajax_cardano_altpay_archive_wallet',   [self::class, 'ajaxArchiveWallet']);
         add_action('wp_ajax_cardano_altpay_rescan_invoice',   [self::class, 'ajaxRescanInvoice']);
+        add_action('wp_ajax_cardano_altpay_refund_invoice',   [self::class, 'ajaxRefundInvoice']);
         add_action('wp_ajax_cardano_altpay_save_settings',    [self::class, 'ajaxSaveSettings']);
         add_action('wp_ajax_cardano_altpay_reveal_mnemonic',  [self::class, 'ajaxRevealMnemonic']);
         add_action('admin_enqueue_scripts',                   [self::class, 'enqueueAdminAssets']);
@@ -50,6 +51,11 @@ class AltPayAdminController {
             'ajaxurl' => admin_url('admin-ajax.php'),
             'nonce'   => wp_create_nonce(self::NONCE),
             'pageUrl' => admin_url('admin.php?page=' . self::PAGE_SLUG),
+            'sweepTargets' => [
+                'btc' => (string) get_option('cardano_mint_altpay_btc_sweep_address', ''),
+                'eth' => (string) get_option('cardano_mint_altpay_eth_sweep_address', ''),
+                'sol' => (string) get_option('cardano_mint_altpay_sol_sweep_address', ''),
+            ],
         ]);
         wp_enqueue_style(
             'cardano-altpay-admin',
@@ -172,6 +178,28 @@ class AltPayAdminController {
         AltPayService::reconcile($inv);
         $fresh = ChainInvoiceModel::get($id);
         wp_send_json_success(['invoice' => $fresh]);
+    }
+
+    public static function ajaxRefundInvoice(): void {
+        check_ajax_referer(self::NONCE, 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'forbidden']);
+
+        $id = (int) ($_POST['invoice_id'] ?? 0);
+        $toAddr = sanitize_text_field($_POST['to_address'] ?? '');
+        $amount = preg_replace('/[^0-9]/', '', (string) ($_POST['amount_minor'] ?? ''));
+
+        if ($id <= 0)         wp_send_json_error(['message' => 'invoice_id required']);
+        if ($toAddr === '')   wp_send_json_error(['message' => 'destination required']);
+        if ($amount === '' || $amount === '0') wp_send_json_error(['message' => 'amount_minor required']);
+
+        $res = AltPayService::refund($id, $toAddr, $amount);
+        if (is_wp_error($res)) wp_send_json_error(['message' => $res->get_error_message()]);
+
+        wp_send_json_success([
+            'invoice_id' => $id,
+            'tx_hash'    => $res['tx_hash'] ?? '',
+            'raw_tx'     => $res['raw_tx'] ?? '',
+        ]);
     }
 
     public static function ajaxSaveSettings(): void {

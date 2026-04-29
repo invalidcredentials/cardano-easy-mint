@@ -194,6 +194,37 @@
             });
     });
 
+    $(document).on('click', '[data-action="altpay-refund"]', function () {
+        const $btn = $(this);
+        const id    = $btn.data('invoice-id');
+        const chain = String($btn.data('chain') || '').toLowerCase();
+        const defaultAmt = String($btn.data('default-amount') || '');
+
+        const minorLabel = chain === 'btc' ? 'sats' : chain === 'eth' ? 'wei' : 'lamports';
+        const placeholderAddr = chain === 'btc' ? 'bc1q… or tb1q…'
+            : chain === 'eth' ? '0x…'
+            : 'Base58…';
+        const toAddr = window.prompt('Refund destination (' + chain.toUpperCase() + ' address, ' + placeholderAddr + ')', '');
+        if (!toAddr) return;
+        const amount = window.prompt('Amount in ' + minorLabel + ' (smallest unit). Funded amount was ' + defaultAmt + '.', defaultAmt);
+        if (!amount) return;
+        const cleanAmount = String(amount).replace(/[^0-9]/g, '');
+        if (!cleanAmount || cleanAmount === '0') { window.alert('Amount must be a positive integer in ' + minorLabel + '.'); return; }
+
+        if (!window.confirm('Confirm refund:\n\n  invoice #' + id + '\n  chain: ' + chain.toUpperCase() + '\n  amount: ' + cleanAmount + ' ' + minorLabel + '\n  to: ' + toAddr + '\n\nThis broadcasts a real transaction. Continue?')) return;
+
+        $btn.prop('disabled', true).text('Refunding…');
+        ajax('cardano_altpay_refund_invoice', { invoice_id: id, to_address: toAddr.trim(), amount_minor: cleanAmount })
+            .then(function (data) {
+                window.alert('Refund broadcast.\n\nTx: ' + (data.tx_hash || '(no hash)'));
+                window.location.reload();
+            })
+            .catch(function (e) {
+                window.alert('Refund failed: ' + e.message);
+                $btn.prop('disabled', false).text('Refund');
+            });
+    });
+
     $(document).on('click', '[data-action="altpay-save-settings"]', function () {
         const $btn = $(this);
         const $form = $('#kg-altpay-settings-form');

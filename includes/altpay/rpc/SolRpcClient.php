@@ -46,6 +46,18 @@ class SolRpcClient {
         ];
     }
 
+    public function getLatestBlockhash(string $network): ?string {
+        $url = $this->rpcUrl($network);
+        $r = $this->call($url, 'getLatestBlockhash', [['commitment' => 'confirmed']]);
+        return is_array($r) ? ($r['value']['blockhash'] ?? null) : null;
+    }
+
+    /** Broadcast a base64-encoded versioned/legacy transaction. */
+    public function sendRawTransaction(string $network, string $base64Tx): ?string {
+        $url = $this->rpcUrl($network);
+        return $this->call($url, 'sendTransaction', [$base64Tx, ['encoding' => 'base64', 'preflightCommitment' => 'confirmed']]);
+    }
+
     /** Returns the JSON-RPC `result` field as-is, or null on error. */
     public function call(string $url, string $method, array $params) {
         $payload = wp_json_encode([

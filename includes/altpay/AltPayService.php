@@ -196,6 +196,53 @@ class AltPayService {
         return ChainInvoiceModel::set_status($invoiceId, 'cancelled');
     }
 
+    /**
+     * Issue a refund / sweep tx FROM the invoice's child address TO an
+     * arbitrary destination. Only allowed on invoices that are funded,
+     * underpaid, overpaid, or consumed; pending invoices haven't received
+     * money and refunds expired/cancelled ones can be sent if the operator
+     * insists (the on-chain check is the ultimate authority).
+     *
+     * @param int    $invoiceId   row id in wp_cm_chain_invoices
+     * @param string $toAddress   chain-native destination
+     * @param string $amountMinor decimal-string amount in smallest units
+     * @return array|\WP_Error    {tx_hash, raw_tx} on success
+     */
+    public static function refund(int $invoiceId, string $toAddress, string $amountMinor) {
+        $inv = ChainInvoiceModel::get($invoiceId);
+        if (!$inv) return new \WP_Error('altpay_no_invoice', 'invoice not found');
+        $provider = self::provider($inv['chain']);
+        if (!$provider) return new \WP_Error('altpay_unknown_chain', 'unknown chain');
+
+        if ($amountMinor === '' || preg_match('/[^0-9]/', $amountMinor)) {
+            return new \WP_Error('altpay_bad_amount', 'amount_minor must be a non-negative integer string');
+        }
+        if ($toAddress === '') return new \WP_Error('altpay_bad_address', 'destination address required');
+
+        try {
+            $result = $provider->buildAndBroadcastRefund(
+                (int) $inv['parent_wallet_id'],
+                (int) $inv['derivation_index'],
+                $toAddress,
+                $amountMinor
+            );
+        } catch (\Throwable $e) {
+            error_log('[CardanoMint AltPay] refund failed: ' . $e->getMessage());
+            return new \WP_Error('altpay_refund_failed', $e->getMessage());
+        }
+
+        ChainTxLogModel::append([
+            'invoice_id'   => $invoiceId,
+            'tx_hash'      => (string) ($result['tx_hash'] ?? ''),
+            'direction'    => 'refund',
+            'amount_minor' => $amountMinor,
+            'raw_payload'  => ['to' => $toAddress, 'raw_tx' => $result['raw_tx'] ?? ''],
+        ]);
+        ChainInvoiceModel::set_status($invoiceId, 'refunded');
+
+        return $result;
+    }
+
     /** Cron-driven sweep across pending invoices. */
     public static function watcher_tick(): void {
         ChainInvoiceModel::expire_past_due();

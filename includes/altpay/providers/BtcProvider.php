@@ -7,6 +7,7 @@ use CardanoMintPay\AltPay\Bip32Secp;
 use CardanoMintPay\AltPay\Encoding\Bech32;
 use CardanoMintPay\AltPay\Rpc\MempoolClient;
 use CardanoMintPay\Models\ChainWalletModel;
+use CardanoMintPay\AltPay\Lib\Secp256k1;
 
 if (!defined('ABSPATH')) exit;
 
@@ -81,7 +82,169 @@ class BtcProvider implements ChainPaymentProvider {
     }
 
     public function buildAndBroadcastRefund(int $walletId, int $childIndex, string $toAddr, string $amountMinor): array {
-        throw new \RuntimeException('BTC refund signing is Phase 5');
+        $wallet = ChainWalletModel::get($walletId);
+        if (!$wallet) throw new \RuntimeException('parent wallet not found');
+        $xprv = ChainWalletModel::get_xprv($walletId);
+        if ($xprv === '') throw new \RuntimeException('xprv decrypt failed');
+
+        try {
+            $network = $wallet['network'] ?? 'mainnet';
+            $master  = $this->parseXprv($xprv);
+            $account = \CardanoMintPay\AltPay\Bip32Secp::derivePath($master, $this->accountPath($network));
+            $child   = \CardanoMintPay\AltPay\Bip32Secp::ckdPriv($account, $childIndex);
+            $priv32  = $child['k'];
+            $pub     = \CardanoMintPay\AltPay\Bip32Secp::pubFromPriv($priv32);
+            $hash160 = hash('ripemd160', hash('sha256', $pub, true), true);
+
+            $hrp = ($network === 'mainnet') ? 'bc' : 'tb';
+            $fromAddr = \CardanoMintPay\AltPay\Encoding\Bech32::encodeSegwitV0($hrp, $hash160);
+
+            $rpc = new MempoolClient();
+            $utxos = $rpc->getUtxos($fromAddr, $network);
+            if (empty($utxos)) throw new \RuntimeException('no UTXOs available at the source address');
+
+            // Pick UTXOs greedily until we cover amount + fee allowance.
+            $amountSats = (int) $amountMinor;
+            $feeRate = $rpc->getRecommendedFeeRate($network);
+            $selected = [];
+            $total = 0;
+            // Initial fee estimate: 10 base + 68 per input + 31 per output. Two outputs (recipient + change).
+            usort($utxos, function ($a, $b) { return (int) $b['value'] <=> (int) $a['value']; });
+            foreach ($utxos as $u) {
+                $selected[] = $u;
+                $total += (int) $u['value'];
+                $vbytes = 10 + 68 * count($selected) + 31 * 2;
+                $fee = $vbytes * $feeRate;
+                if ($total >= $amountSats + $fee) break;
+            }
+            $vbytes = 10 + 68 * count($selected) + 31 * 2;
+            $fee = $vbytes * $feeRate;
+            if ($total < $amountSats + $fee) {
+                throw new \RuntimeException('insufficient balance: have ' . $total . ' sats, need ' . ($amountSats + $fee));
+            }
+            $change = $total - $amountSats - $fee;
+
+            // Decode destination Bech32.
+            $toDecoded = \CardanoMintPay\AltPay\Encoding\Bech32::decode($toAddr);
+            if (!$toDecoded || empty($toDecoded['data']) || (int) $toDecoded['data'][0] !== 0) {
+                throw new \InvalidArgumentException('destination must be a SegWit v0 P2WPKH bech32 address');
+            }
+            $witnessVersion = (int) $toDecoded['data'][0];
+            $programWords = array_slice($toDecoded['data'], 1);
+            $programBytes = \CardanoMintPay\AltPay\Encoding\Bech32::convertBits($programWords, 5, 8, false);
+            if (count($programBytes) !== 20) throw new \InvalidArgumentException('destination program must be 20 bytes');
+            $toScriptPubKey = "\x00" . chr(20) . pack('C*', ...$programBytes);
+
+            // Source's own scriptPubKey (for change output).
+            $fromScriptPubKey = "\x00" . chr(20) . $hash160;
+
+            // Build tx skeleton
+            $version = pack('V', 2);
+            $locktime = pack('V', 0);
+            $sequence = pack('V', 0xfffffffd); // RBF-enabled
+
+            $outputs = [
+                ['value' => $amountSats, 'script' => $toScriptPubKey],
+            ];
+            if ($change > 546) { // dust threshold
+                $outputs[] = ['value' => $change, 'script' => $fromScriptPubKey];
+            }
+
+            // BIP143 prevouts/sequence/outputs hashes (precomputed once per tx).
+            $prevoutsBin = '';
+            $sequencesBin = '';
+            foreach ($selected as $u) {
+                $prevoutsBin  .= self::reverseBytes(hex2bin($u['txid'])) . pack('V', (int) $u['vout']);
+                $sequencesBin .= $sequence;
+            }
+            $hashPrevouts = self::hash256($prevoutsBin);
+            $hashSequence = self::hash256($sequencesBin);
+
+            $outputsBin = '';
+            foreach ($outputs as $o) {
+                $outputsBin .= self::packU64LE($o['value']) . self::varint(strlen($o['script'])) . $o['script'];
+            }
+            $hashOutputs = self::hash256($outputsBin);
+
+            // Per-input sighash (BIP143) + witnesses
+            $witnesses = [];
+            foreach ($selected as $i => $u) {
+                $scriptCode = "\x19\x76\xa9\x14" . $hash160 . "\x88\xac"; // P2WPKH "script code" with len varint 0x19
+                $preimage =
+                    $version
+                    . $hashPrevouts
+                    . $hashSequence
+                    . self::reverseBytes(hex2bin($u['txid'])) . pack('V', (int) $u['vout'])
+                    . $scriptCode
+                    . self::packU64LE((int) $u['value'])
+                    . $sequence
+                    . $hashOutputs
+                    . $locktime
+                    . pack('V', 1); // SIGHASH_ALL
+                $sighash = self::hash256($preimage);
+                $sig = Secp256k1::sign($priv32, $sighash);
+                $der = Secp256k1::derEncodeSig($sig['r'], $sig['s']) . "\x01"; // append SIGHASH_ALL byte
+                $witnesses[$i] = [
+                    $der,
+                    $pub, // 33-byte compressed pubkey
+                ];
+            }
+
+            // Serialize the full tx (with marker + flag for SegWit).
+            $raw = $version . "\x00\x01"; // marker + flag
+            $raw .= self::varint(count($selected));
+            foreach ($selected as $u) {
+                $raw .= self::reverseBytes(hex2bin($u['txid']))
+                      . pack('V', (int) $u['vout'])
+                      . self::varint(0) // empty scriptSig for P2WPKH
+                      . $sequence;
+            }
+            $raw .= self::varint(count($outputs));
+            foreach ($outputs as $o) {
+                $raw .= self::packU64LE($o['value']) . self::varint(strlen($o['script'])) . $o['script'];
+            }
+            // Witnesses
+            foreach ($selected as $i => $_) {
+                $w = $witnesses[$i];
+                $raw .= self::varint(count($w));
+                foreach ($w as $item) {
+                    $raw .= self::varint(strlen($item)) . $item;
+                }
+            }
+            $raw .= $locktime;
+
+            $rawHex = bin2hex($raw);
+            $hash = $rpc->broadcastRaw($rawHex, $network);
+            if (!$hash) throw new \RuntimeException('mempool.space broadcast failed');
+            return ['tx_hash' => $hash, 'raw_tx' => $rawHex];
+        } finally {
+            if (isset($priv32)) { $priv32 = null; unset($priv32); }
+            $xprv = null; unset($xprv);
+        }
+    }
+
+    /* ── Bitcoin serialization helpers ─────────────────────────── */
+
+    private static function varint(int $n): string {
+        if ($n < 0xfd)        return chr($n);
+        if ($n <= 0xffff)     return "\xfd" . pack('v', $n);
+        if ($n <= 0xffffffff) return "\xfe" . pack('V', $n);
+        // 64-bit case: not expected for our small tx counts.
+        $low = $n & 0xffffffff;
+        $high = ($n >> 32) & 0xffffffff;
+        return "\xff" . pack('V', $low) . pack('V', $high);
+    }
+
+    private static function packU64LE(int $n): string {
+        $low  = $n & 0xffffffff;
+        $high = (int) (($n - $low) / 4294967296);
+        return pack('V', $low) . pack('V', $high & 0xffffffff);
+    }
+
+    private static function reverseBytes(string $bin): string { return strrev($bin); }
+
+    private static function hash256(string $bin): string {
+        return hash('sha256', hash('sha256', $bin, true), true);
     }
 
     public function explorerTxUrl(string $hash, string $network): string {
