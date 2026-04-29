@@ -48,6 +48,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/altpay/providers/SolProvider.
 require_once plugin_dir_path(__FILE__) . 'includes/models/ChainWalletModel.php';
 require_once plugin_dir_path(__FILE__) . 'includes/models/ChainInvoiceModel.php';
 require_once plugin_dir_path(__FILE__) . 'includes/models/ChainTxLogModel.php';
+require_once plugin_dir_path(__FILE__) . 'includes/controllers/AltPayAdminController.php';
 
 // Register activation hook for database tables
 register_activation_hook(__FILE__, 'cardanomint_activate');
@@ -228,6 +229,10 @@ add_action('init', function() {
         CardanoMintPay\AltPay\AltPayService::register(new CardanoMintPay\AltPay\Providers\EthProvider());
         CardanoMintPay\AltPay\AltPayService::register(new CardanoMintPay\AltPay\Providers\SolProvider());
     }
+
+    if (class_exists('CardanoMintPay\\Controllers\\AltPayAdminController')) {
+        CardanoMintPay\Controllers\AltPayAdminController::register();
+    }
 });
 
 // Watcher cron: hourly is the WP default minimum, so we register a custom
@@ -338,6 +343,15 @@ function cardanomint_admin_menu() {
 
     add_submenu_page(
         'cardano-mint-plugin-setup',
+        'Payment Wallets',
+        'Payment Wallets',
+        'manage_options',
+        'cardano-payment-wallets',
+        'cardanomint_payment_wallets_page'
+    );
+
+    add_submenu_page(
+        'cardano-mint-plugin-setup',
         'Widget Deployer',
         'Widget Deployer',
         'manage_options',
@@ -360,6 +374,13 @@ function cardanomint_policy_wallet_page() {
         wp_die('Insufficient permissions');
     }
     include(plugin_dir_path(__FILE__) . 'includes/views/policy-wallet-manager.php');
+}
+
+function cardanomint_payment_wallets_page() {
+    if (!current_user_can('manage_options')) {
+        wp_die('Insufficient permissions');
+    }
+    \CardanoMintPay\Controllers\AltPayAdminController::renderPage();
 }
 
 function cardanomint_setup_page() {
