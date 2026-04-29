@@ -84,7 +84,7 @@ $sol_sweep       = (string) get_option('cardano_mint_altpay_sol_sweep_address', 
                     <th scope="row"><label>Sweep target</label></th>
                     <td>
                         <input type="text" name="btc_sweep_address" value="<?php echo esc_attr($btc_sweep); ?>" placeholder="bc1q…" style="width:100%; max-width:520px; font-family: ui-monospace, monospace;">
-                        <p class="description">Cold address used by the per-chain sweep tool (Phase 5).</p>
+                        <p class="description">Default destination for the Dashboard <strong>Send funds</strong> button. Leave blank to paste it manually each time.</p>
                     </td>
                 </tr>
             </tbody>
