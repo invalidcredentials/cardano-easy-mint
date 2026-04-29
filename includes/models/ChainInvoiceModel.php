@@ -80,6 +80,32 @@ class ChainInvoiceModel {
         return false !== $wpdb->update(self::table(), $data, ['id' => $id], $fmt, ['%d']);
     }
 
+    /**
+     * Find an existing pending invoice for the same {mint, chain, customer}
+     * tuple that has not expired yet. Lets the quote endpoint be idempotent
+     * across page reloads / closed modals so we don't burn a fresh HD
+     * derivation index every time.
+     */
+    public static function find_active_for(int $mint_id, string $chain, string $customer_cardano_address): ?array {
+        global $wpdb;
+        $tbl = self::table();
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM `$tbl`
+              WHERE mint_id = %d
+                AND chain = %s
+                AND customer_cardano_address = %s
+                AND status = %s
+                AND expires_at > NOW()
+              ORDER BY created_at DESC
+              LIMIT 1",
+            $mint_id,
+            $chain,
+            $customer_cardano_address,
+            'pending'
+        ), ARRAY_A);
+        return $row ?: null;
+    }
+
     public static function find_pending(int $limit = 50): array {
         global $wpdb;
         $tbl = self::table();

@@ -21,8 +21,8 @@ if (!defined('ABSPATH')) exit;
  */
 class AltPayService {
 
-    const QUOTE_TTL_SECONDS = 15 * 60;          // 15-minute rate lock
-    const INVOICE_TTL_SECONDS = 30 * 60;         // 30-minute payment window
+    const QUOTE_TTL_SECONDS = 15 * 60;            // 15-minute rate lock (only for fresh quotes)
+    const INVOICE_TTL_SECONDS = 24 * 60 * 60;     // 24-hour payment window (BTC confirmations are slow)
     const DEFAULT_TOLERANCE_BPS = 100;            // 1.00%
 
     /** @var array<string, ChainPaymentProvider> */
@@ -60,6 +60,23 @@ class AltPayService {
 
         $usd = (float) ($mint['price'] ?? 0);
         if ($usd <= 0) return new \WP_Error('altpay_no_price', 'Mint is not priced');
+
+        // Idempotency: if the same customer already has a pending invoice
+        // for this mint and chain, return that one. Lets the modal survive
+        // page reloads without burning fresh HD indices.
+        $existing = ChainInvoiceModel::find_active_for($mintId, $chain, $customerCardanoAddress);
+        if ($existing) {
+            return [
+                'invoice_id'             => (int) $existing['id'],
+                'chain'                  => $chain,
+                'address'                => $existing['address'],
+                'currency'               => $existing['currency'],
+                'expected_amount_minor'  => $existing['expected_amount_minor'],
+                'rate_locked'            => (float) $existing['rate_locked'],
+                'expires_at'             => gmdate('c', strtotime($existing['expires_at'])),
+                'reused'                 => true,
+            ];
+        }
 
         $rate = PriceOracle::getRate($chain);
         if ($rate <= 0) return new \WP_Error('altpay_no_rate', 'Could not fetch ' . strtoupper($chain) . ' price');
