@@ -1122,12 +1122,31 @@
                         if (!submitResult.txHash) {
                             throw new Error('Mint transaction submission failed');
                         }
-                        
+
                         // Success!
                         const txHashElement = document.getElementById('mint-tx-hash');
                         if (txHashElement) {
                             txHashElement.textContent = submitResult.txHash;
                         }
+
+                        // Tell altpay-checkout.js to wipe its receipt overlay
+                        // and clear the localStorage invoice for the chain it
+                        // used. Without this, opening the modal again to mint
+                        // a second time would still display the previous SOL/
+                        // ETH/BTC "covered" totals while the customer actually
+                        // has no off-chain payment in flight.
+                        try {
+                            const altpayChainEl   = document.getElementById('altpay-chain');
+                            const altpayInvoiceEl = document.getElementById('altpay-invoice-id');
+                            document.dispatchEvent(new CustomEvent('kg:mint-completed', {
+                                detail: {
+                                    txHash:    submitResult.txHash,
+                                    chain:     altpayChainEl   ? altpayChainEl.value   : 'ada',
+                                    invoiceId: altpayInvoiceEl ? altpayInvoiceEl.value : ''
+                                }
+                            }));
+                        } catch (e) { /* CustomEvent should always be available; ignore in case of older browsers */ }
+
                         nextMintStep(3);
                     } else {
                         // If no signature but no error, assume transaction was already processed
