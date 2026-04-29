@@ -207,16 +207,39 @@ $nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
 
                                 <div class="receipt-divider"></div>
 
-                                <!-- Line Items -->
+                                <!-- Quantity (1-5 per tx; users can re-mint for more) -->
+                                <div class="receipt-quantity-row" id="receipt-quantity-row">
+                                    <span class="quantity-label">Quantity</span>
+                                    <div class="quantity-stepper" role="group" aria-label="Mint quantity">
+                                        <button type="button" class="qty-btn" id="qty-dec" aria-label="Decrease quantity">−</button>
+                                        <input type="text" id="qty-input" class="qty-input" value="1" readonly aria-live="polite">
+                                        <button type="button" class="qty-btn" id="qty-inc" aria-label="Increase quantity">+</button>
+                                    </div>
+                                </div>
+                                <p class="quantity-hint" id="quantity-hint">Mint up to 5 in a single transaction.</p>
+
+                                <div class="receipt-divider"></div>
+
+                                <?php
+                                $ada_price   = CardanoMintPay\Models\MintModel::getNFTPrice();
+                                $ada_amount  = $nft_price / max($ada_price, 0.0001);
+                                $anvil_ada   = 1.15;
+                                $anvil_usd   = $anvil_ada * $ada_price;
+                                $network_ada = 0.22;
+                                $network_usd = $network_ada * $ada_price;
+                                $total_usd   = $nft_price + $anvil_usd + $network_usd;
+                                $total_ada   = $ada_amount + $anvil_ada + $network_ada;
+                                ?>
+                                <!-- Line Items (per-unit values stored in data-unit-* for the qty stepper to scale) -->
                                 <div class="receipt-line-item">
-                                    <span class="line-item-label">NFT Mint Price</span>
+                                    <span class="line-item-label" id="review-nft-price-label">NFT Mint Price</span>
                                     <div class="line-item-value">
-                                        <div class="price-usd" id="review-nft-price-usd">$<?php echo esc_html(number_format($nft_price, 2)); ?> USD</div>
-                                        <div class="price-ada" id="review-nft-price-ada"><?php
-                                            $ada_price = CardanoMintPay\Models\MintModel::getNFTPrice();
-                                            $ada_amount = $nft_price / $ada_price;
-                                            echo esc_html(number_format($ada_amount, 4));
-                                        ?> ADA</div>
+                                        <div class="price-usd" id="review-nft-price-usd"
+                                             data-unit-usd="<?php echo esc_attr($nft_price); ?>"
+                                             data-unit-ada="<?php echo esc_attr($ada_amount); ?>">
+                                            $<?php echo esc_html(number_format($nft_price, 2)); ?> USD
+                                        </div>
+                                        <div class="price-ada" id="review-nft-price-ada"><?php echo esc_html(number_format($ada_amount, 4)); ?> ADA</div>
                                     </div>
                                 </div>
 
@@ -224,24 +247,24 @@ $nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
                                 <div class="receipt-line-item">
                                     <span class="line-item-label">Anvil Minting Service</span>
                                     <div class="line-item-value">
-                                        <div class="price-usd" id="review-anvil-usd">$<?php
-                                            $anvil_ada = 1.15;
-                                            $anvil_usd = $anvil_ada * $ada_price;
-                                            echo esc_html(number_format($anvil_usd, 2));
-                                        ?> USD</div>
+                                        <div class="price-usd" id="review-anvil-usd"
+                                             data-unit-usd="<?php echo esc_attr($anvil_usd); ?>"
+                                             data-unit-ada="<?php echo esc_attr($anvil_ada); ?>">
+                                            $<?php echo esc_html(number_format($anvil_usd, 2)); ?> USD
+                                        </div>
                                         <div class="price-ada" id="review-anvil-ada"><?php echo esc_html(number_format($anvil_ada, 2)); ?> ADA</div>
                                     </div>
                                 </div>
 
-                                <!-- Cardano Network Fee -->
+                                <!-- Cardano Network Fee (one tx, scales slightly with assets but Anvil estimates it) -->
                                 <div class="receipt-line-item">
                                     <span class="line-item-label">Cardano Network Fee</span>
                                     <div class="line-item-value">
-                                        <div class="price-usd" id="review-network-usd">~$<?php
-                                            $network_ada = 0.22;
-                                            $network_usd = $network_ada * $ada_price;
-                                            echo esc_html(number_format($network_usd, 2));
-                                        ?> USD</div>
+                                        <div class="price-usd" id="review-network-usd"
+                                             data-unit-usd="<?php echo esc_attr($network_usd); ?>"
+                                             data-unit-ada="<?php echo esc_attr($network_ada); ?>">
+                                            ~$<?php echo esc_html(number_format($network_usd, 2)); ?> USD
+                                        </div>
                                         <div class="price-ada" id="review-network-ada">~<?php echo esc_html(number_format($network_ada, 2)); ?> ADA</div>
                                     </div>
                                 </div>
@@ -252,15 +275,12 @@ $nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
                                 <div class="receipt-total">
                                     <span class="total-label">Total Cost</span>
                                     <div class="total-value">
-                                        <div class="total-usd" id="review-total-usd">$<?php
-                                            // Total = NFT Price + Anvil + Network
-                                            $total_usd = $nft_price + $anvil_usd + $network_usd;
-                                            $total_ada = $ada_amount + $anvil_ada + $network_ada;
-                                            echo esc_html(number_format($total_usd, 2));
-                                        ?> USD</div>
-                                        <div class="total-ada" id="review-total-ada"><?php
-                                            echo esc_html(number_format($total_ada, 2));
-                                        ?> ADA</div>
+                                        <div class="total-usd" id="review-total-usd"
+                                             data-unit-usd="<?php echo esc_attr($total_usd); ?>"
+                                             data-unit-ada="<?php echo esc_attr($total_ada); ?>">
+                                            $<?php echo esc_html(number_format($total_usd, 2)); ?> USD
+                                        </div>
+                                        <div class="total-ada" id="review-total-ada"><?php echo esc_html(number_format($total_ada, 2)); ?> ADA</div>
                                     </div>
                                 </div>
 

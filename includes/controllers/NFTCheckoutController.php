@@ -203,6 +203,11 @@ class NFTCheckoutController {
         $asset_id = intval($_POST['asset_id'] ?? 0);
         $posted_usd_price = floatval($_POST['usd_price'] ?? 0); // Kept only for debug comparison.
 
+        // Per-tx quantity (hard cap 5 in the UI; the per-wallet limit is
+        // checked separately below). Customers wanting more re-mint in
+        // additional txs.
+        $quantity = max(1, min(5, intval($_POST['quantity'] ?? 1)));
+
         // Debug logging
         error_log("=== MINT TRANSACTION DEBUG ===");
         error_log("merchant_address: " . $merchant_address);
@@ -266,9 +271,18 @@ class NFTCheckoutController {
             error_log("[AltPay] legacy build: invoice $invoice_id -> service fee $service_fee_ada ADA");
         }
 
+        // Validate remaining supply covers this batch BEFORE we touch wallet limits.
+        $remaining = intval($mint_data['quantity_total'] ?? 0) - intval($mint_data['quantity_minted'] ?? 0);
+        if ($remaining < $quantity) {
+            $msg = $remaining <= 0
+                ? 'This mint is sold out.'
+                : 'Only ' . $remaining . ' left for this mint. Lower the quantity and try again.';
+            wp_send_json_error(['message' => $msg]);
+        }
+
         // Check per-wallet mint limits BEFORE building transaction
         $mints_allowed = intval($mint_data['mintsallowedperwallet'] ?? 0);
-        error_log("Checking mint limits for policy: " . $policy_id . ", wallet: " . $customer_address . ", allowed: " . $mints_allowed);
+        error_log("Checking mint limits for policy: " . $policy_id . ", wallet: " . $customer_address . ", allowed: " . $mints_allowed . ", qty: " . $quantity);
 
         $mint_check = MintModel::canWalletMint($policy_id, $customer_address, $mints_allowed);
         error_log("Mint limits check result: " . print_r($mint_check, true));
@@ -276,6 +290,11 @@ class NFTCheckoutController {
         if (!$mint_check['can_mint']) {
             error_log("Mint limits check failed: " . $mint_check['message']);
             wp_send_json_error(['message' => $mint_check['message']]);
+        }
+        // canWalletMint validates 1 mint of headroom; for qty>1 we also need
+        // the requested batch to fit within the per-wallet allowance.
+        if ($mints_allowed > 0 && isset($mint_check['remaining']) && $mint_check['remaining'] < $quantity) {
+            wp_send_json_error(['message' => 'You can only mint ' . $mint_check['remaining'] . ' more from this collection. Lower the quantity.']);
         }
 
         error_log("FOUND asset!");
@@ -293,8 +312,9 @@ class NFTCheckoutController {
         error_log("  usd_price: " . $usd_price);
         error_log("  policy_id: " . $policy_id);
 
-        // Build transaction via Anvil API with mint metadata
-        $response = AnvilAPI::buildMintTransaction($merchant_address, $customer_address, $usd_price, $policy_id, 'mint', $mint_data);
+        // Build transaction via Anvil API with mint metadata. Quantity is passed
+        // through so a single tx mints N unique assets for one signature.
+        $response = AnvilAPI::buildMintTransaction($merchant_address, $customer_address, $usd_price, $policy_id, 'mint', $mint_data, $quantity);
 
         if (is_wp_error($response)) {
             wp_send_json_error(['message' => $response->get_error_message()]);
@@ -330,6 +350,7 @@ class NFTCheckoutController {
         $policy_id = sanitize_text_field($_POST['policy_id'] ?? '');
         $wallet_address = sanitize_text_field($_POST['wallet_address'] ?? '');
         $asset_id = intval($_POST['asset_id'] ?? 0);
+        $quantity = max(1, min(5, intval($_POST['quantity'] ?? 1)));
 
         if (!$transaction || !$policy_id || !$wallet_address) {
             wp_send_json_error(['message' => 'Missing required data']);
@@ -357,26 +378,24 @@ class NFTCheckoutController {
             // In future, get this from CIP-30 wallet API or parse from payment address
             $stake_address = null;
 
-            // Record the mint in our tracking system
-            $recorded = MintModel::recordMint($policy_id, $wallet_address, $stake_address, $mints_allowed);
-            if ($recorded) {
-                error_log("✅ Mint recorded for wallet: " . $wallet_address . " on policy: " . $policy_id);
-            } else {
-                error_log("⚠️ WARNING: Failed to record mint for wallet: " . $wallet_address);
-            }
-
-            // Legacy: Increment per-wallet mint count for this policy
-            MintModel::incrementMintCount($policy_id, $wallet_address);
-
-            // Decrement available quantity for this specific asset
-            if ($asset_id > 0) {
-                $decremented = MintModel::decrementQuantity($asset_id);
-                if ($decremented) {
-                    error_log("Cardano Mint: Decremented quantity for asset ID " . $asset_id);
+            // Record N mint rows + decrement supply by N. Tx atomically minted
+            // $quantity assets for this wallet, so the tracking has to mirror that.
+            for ($i = 0; $i < $quantity; $i++) {
+                $recorded = MintModel::recordMint($policy_id, $wallet_address, $stake_address, $mints_allowed);
+                if ($recorded) {
+                    error_log("✅ Mint recorded ({$i}/{$quantity}) for wallet: " . $wallet_address . " on policy: " . $policy_id);
                 } else {
-                    error_log("Cardano Mint: WARNING - Failed to decrement quantity for asset ID " . $asset_id);
+                    error_log("⚠️ WARNING: Failed to record mint ({$i}/{$quantity}) for wallet: " . $wallet_address);
+                }
+                MintModel::incrementMintCount($policy_id, $wallet_address);
+                if ($asset_id > 0) {
+                    $decremented = MintModel::decrementQuantity($asset_id);
+                    if (!$decremented) {
+                        error_log("Cardano Mint: WARNING - Failed to decrement quantity ({$i}/{$quantity}) for asset ID " . $asset_id);
+                    }
                 }
             }
+            error_log("Cardano Mint: completed accounting for batch of {$quantity} on asset ID " . $asset_id);
 
             // Mark CIP-27 royalty token as minted for this policy (if it was the first mint)
             // This ensures subsequent mints for this policy won't mint another royalty token
