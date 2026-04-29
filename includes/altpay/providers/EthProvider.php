@@ -135,7 +135,12 @@ class EthProvider implements ChainPaymentProvider {
             $rawTx = "\x02" . Rlp::encode($signedFields);
 
             $hash = $rpc->sendRawTransaction($network, '0x' . bin2hex($rawTx));
-            if (!$hash) throw new \RuntimeException('eth_sendRawTransaction returned no hash');
+            if (is_array($hash) && isset($hash['__error'])) {
+                throw new \RuntimeException('Ethereum RPC: ' . $hash['__error']);
+            }
+            if (!is_string($hash) || $hash === '') {
+                throw new \RuntimeException('eth_sendRawTransaction returned no hash');
+            }
             return ['tx_hash' => $hash, 'raw_tx' => '0x' . bin2hex($rawTx)];
         } finally {
             if (isset($priv32)) { $priv32 = null; unset($priv32); }
