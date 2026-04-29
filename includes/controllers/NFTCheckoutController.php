@@ -150,8 +150,10 @@ class NFTCheckoutController {
                 if (!empty(\CardanoMintPay\Models\ChainWalletModel::list_for_chain($c, false))) { $any_chain = true; break; }
             }
             if ($any_chain) {
-                wp_enqueue_style('cardano-altpay-checkout-css', plugin_dir_url(__FILE__) . '../../assets/altpay/altpay-checkout.css', [], '0.1.0');
-                wp_enqueue_script('cardano-altpay-checkout-js', plugin_dir_url(__FILE__) . '../../assets/altpay/altpay-checkout.js', [], '0.1.0', true);
+                $altpay_css_path = plugin_dir_path(__FILE__) . '../../assets/altpay/altpay-checkout.css';
+                $altpay_js_path  = plugin_dir_path(__FILE__) . '../../assets/altpay/altpay-checkout.js';
+                wp_enqueue_style('cardano-altpay-checkout-css', plugin_dir_url(__FILE__) . '../../assets/altpay/altpay-checkout.css', [], file_exists($altpay_css_path) ? filemtime($altpay_css_path) : '0.1.0');
+                wp_enqueue_script('cardano-altpay-checkout-js', plugin_dir_url(__FILE__) . '../../assets/altpay/altpay-checkout.js', [], file_exists($altpay_js_path) ? filemtime($altpay_js_path) : '0.1.0', true);
                 wp_localize_script('cardano-altpay-checkout-js', 'cardanoAltPayCheckout', [
                     'restUrl'       => esc_url_raw(rest_url('cardano-mint/v1')),
                     'serviceFeeAda' => (int) get_option('cardano_mint_service_fee_ada', 5),
