@@ -7,6 +7,41 @@
 
     const cfg = window.cardanoAltPay || {};
 
+    // navigator.clipboard.writeText only works in a secure context
+    // (https or localhost). On http://*.local hosts it silently rejects,
+    // so fall back to a hidden textarea + execCommand('copy').
+    function copyText(text) {
+        const tryNative = (window.isSecureContext || window.location.protocol === 'https:')
+            && navigator.clipboard
+            && navigator.clipboard.writeText;
+        if (tryNative) {
+            return navigator.clipboard.writeText(text).catch(legacyCopy.bind(null, text));
+        }
+        return legacyCopy(text);
+    }
+
+    function legacyCopy(text) {
+        return new Promise(function (resolve, reject) {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.top = '-1000px';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                ta.setSelectionRange(0, text.length);
+                const ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+                if (ok) resolve(); else reject(new Error('execCommand copy returned false'));
+            } catch (e) {
+                reject(e);
+            }
+        });
+    }
+
     function ajax(action, payload) {
         const data = Object.assign({ action: action, nonce: cfg.nonce }, payload || {});
         return $.post(cfg.ajaxurl, data).then(function (resp) {
@@ -94,10 +129,10 @@
 
         $overlay.on('click', '[data-action="altpay-reveal-copy"]', function () {
             const $b = $(this);
-            navigator.clipboard.writeText(mnemonic).then(function () {
+            copyText(mnemonic).then(function () {
                 $b.text('Copied. Paste into your password manager now.');
-            }, function () {
-                window.alert('Clipboard copy failed. Select the words above and copy manually.');
+            }).catch(function () {
+                window.alert('Clipboard copy failed. The words are selectable in the box above — triple-click and Ctrl+C.');
             });
         });
         $overlay.on('click', '[data-action="altpay-reveal-dismiss"]', function () {
