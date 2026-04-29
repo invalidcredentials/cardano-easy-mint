@@ -128,7 +128,12 @@ class SolProvider implements ChainPaymentProvider {
 
             $base64 = base64_encode($tx);
             $hash = $rpc->sendRawTransaction($network, $base64);
-            if (!is_string($hash) || $hash === '') throw new \RuntimeException('broadcast did not return a signature');
+            if (is_array($hash) && isset($hash['__error'])) {
+                throw new \RuntimeException('Solana RPC: ' . $hash['__error']);
+            }
+            if (!is_string($hash) || $hash === '') {
+                throw new \RuntimeException('Solana broadcast returned no signature (network: ' . $network . ')');
+            }
             return ['tx_hash' => $hash, 'raw_tx' => bin2hex($tx)];
         } finally {
             $xprv = null;

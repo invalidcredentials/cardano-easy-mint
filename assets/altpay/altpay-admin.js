@@ -265,8 +265,32 @@
 
                 const dest = window.prompt('Send to (your external ' + chain.toUpperCase() + ' wallet address):', sweepDefault);
                 if (!dest) return;
-                const def = data.children[0] && data.children[0].balance_minor !== '0' ? data.children[0].balance_minor : '';
-                const amt = window.prompt('Amount in ' + minorLabel + ' (smallest unit). Top child holds ' + def + '.', def);
+
+                // Cap the default amount at (top-child balance - network fee buffer)
+                // so sending 'max' doesn't overrun the fee. Customer can still type
+                // any amount manually; this is just the prefill.
+                //   BTC: ~10,000 sat conservative buffer (covers ~5 sat/vbyte * 200 vbytes)
+                //   ETH: ~210,000 gwei (210,000,000,000 wei) conservative buffer
+                //   SOL: 5,000 lamports (Solana base fee per signature)
+                const FEE_BUFFER = chain === 'btc' ? 10000n
+                                : chain === 'eth' ? 210000000000n
+                                : chain === 'sol' ? 5000n
+                                : 0n;
+                let topBalance = data.children[0] && data.children[0].balance_minor !== '0' ? data.children[0].balance_minor : '';
+                let suggested = topBalance;
+                try {
+                    if (topBalance) {
+                        const balBig = BigInt(topBalance);
+                        suggested = balBig > FEE_BUFFER ? (balBig - FEE_BUFFER).toString() : '0';
+                    }
+                } catch (e) { /* fall through with raw topBalance */ }
+
+                const amt = window.prompt(
+                    'Amount in ' + minorLabel + ' (smallest unit).\n\n' +
+                    'Top child holds ' + (topBalance || '0') + ' ' + minorLabel + '.\n' +
+                    'Suggested max (after ~' + FEE_BUFFER.toString() + ' ' + minorLabel + ' fee buffer): ' + suggested,
+                    suggested
+                );
                 if (!amt) return;
                 const cleanAmt = String(amt).replace(/[^0-9]/g, '');
                 if (!cleanAmt || cleanAmt === '0') { window.alert('Amount must be a positive integer in ' + minorLabel + '.'); return; }

@@ -49,16 +49,28 @@ class SolRpcClient {
     public function getLatestBlockhash(string $network): ?string {
         $url = $this->rpcUrl($network);
         $r = $this->call($url, 'getLatestBlockhash', [['commitment' => 'confirmed']]);
+        if (is_array($r) && isset($r['__error'])) return null;
         return is_array($r) ? ($r['value']['blockhash'] ?? null) : null;
     }
 
-    /** Broadcast a base64-encoded versioned/legacy transaction. */
-    public function sendRawTransaction(string $network, string $base64Tx): ?string {
+    /**
+     * Broadcast a base64-encoded transaction.
+     * On success returns the signature string. On RPC error returns an
+     * array with __error so the caller can include the real reason in
+     * the user-facing message instead of a vague "no signature" throw.
+     */
+    public function sendRawTransaction(string $network, string $base64Tx) {
         $url = $this->rpcUrl($network);
         return $this->call($url, 'sendTransaction', [$base64Tx, ['encoding' => 'base64', 'preflightCommitment' => 'confirmed']]);
     }
 
-    /** Returns the JSON-RPC `result` field as-is, or null on error. */
+    /**
+     * Returns the JSON-RPC `result` field as-is on success.
+     * Returns a ['__error' => string] payload on RPC error so the caller
+     * can surface the real cause (insufficient funds for fee, blockhash
+     * not found, etc.) instead of a generic "broadcast did not return a
+     * signature".
+     */
     public function call(string $url, string $method, array $params) {
         $payload = wp_json_encode([
             'jsonrpc' => '2.0',
@@ -67,20 +79,30 @@ class SolRpcClient {
             'id'      => 1,
         ]);
         $resp = wp_remote_post($url, [
-            'timeout' => 12,
+            'timeout' => 15,
             'headers' => ['Content-Type' => 'application/json'],
             'body'    => $payload,
         ]);
         if (is_wp_error($resp)) {
-            error_log('[CardanoMint AltPay] SOL RPC failed: ' . $resp->get_error_message());
-            return null;
+            $msg = $resp->get_error_message();
+            error_log('[CardanoMint AltPay] SOL RPC transport failed: ' . $msg);
+            return ['__error' => 'transport: ' . $msg];
         }
-        $body = json_decode(wp_remote_retrieve_body($resp), true);
-        if (!is_array($body) || isset($body['error'])) {
-            if (isset($body['error']['message'])) {
-                error_log('[CardanoMint AltPay] SOL RPC returned error: ' . $body['error']['message']);
+        $bodyRaw = wp_remote_retrieve_body($resp);
+        $body = json_decode($bodyRaw, true);
+        if (!is_array($body)) {
+            error_log('[CardanoMint AltPay] SOL RPC returned non-JSON: ' . substr($bodyRaw, 0, 400));
+            return ['__error' => 'non-JSON response from ' . parse_url($url, PHP_URL_HOST)];
+        }
+        if (isset($body['error'])) {
+            $err = $body['error'];
+            $msg = is_array($err) ? ($err['message'] ?? wp_json_encode($err)) : (string) $err;
+            // Solana surfaces logs in error.data.logs that explain the failure.
+            if (is_array($err) && !empty($err['data']['logs'])) {
+                $msg .= ' — ' . implode(' | ', array_slice($err['data']['logs'], -3));
             }
-            return null;
+            error_log('[CardanoMint AltPay] SOL RPC returned error: ' . $msg);
+            return ['__error' => $msg];
         }
         return $body['result'] ?? null;
     }
