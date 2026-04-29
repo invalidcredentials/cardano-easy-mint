@@ -126,30 +126,30 @@ $nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
                     if ($altpay_enabled && !empty($altpay_chains)):
                         $service_fee = (int) get_option('cardano_mint_service_fee_ada', 5);
                     ?>
-                    <div class="altpay-picker" id="altpay-picker" style="display:none; margin-top: 14px;" data-mint-id="<?php echo esc_attr($mint ? (int)($mint['collection_id'] ?? $mint['id']) : 0); ?>">
-                        <h4 style="margin: 6px 0 8px 0;">Pay with</h4>
-                        <div class="altpay-chips" style="display:flex; flex-wrap:wrap; gap:8px;">
+                    <div class="altpay-picker" id="altpay-picker" data-mint-id="<?php echo esc_attr($mint ? (int)($mint['collection_id'] ?? $mint['id']) : 0); ?>" hidden>
+                        <h4>Pay with</h4>
+                        <div class="altpay-chips">
                             <button type="button" class="altpay-chip is-active" data-altpay-chain="ada">ADA</button>
                             <?php foreach ($altpay_chains as $c): ?>
                                 <button type="button" class="altpay-chip" data-altpay-chain="<?php echo esc_attr($c); ?>"><?php echo esc_html(strtoupper($c)); ?></button>
                             <?php endforeach; ?>
                         </div>
-                        <p class="altpay-hint" style="font-size:12px; color:#666; margin-top:8px;">
+                        <p class="altpay-hint">
                             Paying with another chain still uses your connected Cardano wallet to sign and pay a small <?php echo (int) $service_fee; ?> ADA service fee + ~0.17 ADA network fee + 1 ADA receipt. Make sure your Cardano wallet has at least <?php echo (int) ($service_fee + 2); ?> ADA available.
                         </p>
 
-                        <div class="altpay-pay-panel" id="altpay-pay-panel" style="display:none; margin-top: 12px; padding: 14px; border:1px solid #ddd; border-radius:6px; background:#fafafa;">
+                        <div class="altpay-pay-panel" id="altpay-pay-panel" hidden>
                             <p class="altpay-pay-instructions">
                                 Send <strong><span class="altpay-amount-display">—</span></strong> to the address below. We watch the chain and unlock the next step automatically.
                             </p>
-                            <div class="altpay-address-row" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                                <code class="altpay-address" style="word-break:break-all; padding:6px 10px; background:#fff; border:1px solid #ddd; border-radius:4px; font-size:13px;">—</code>
-                                <button type="button" class="button button-small" data-altpay-action="copy-address">Copy</button>
-                                <button type="button" class="button button-small" data-altpay-action="cancel">Cancel</button>
+                            <div class="altpay-address-row">
+                                <code class="altpay-address">—</code>
+                                <button type="button" class="altpay-btn" data-altpay-action="copy-address">Copy</button>
+                                <button type="button" class="altpay-btn altpay-btn--ghost" data-altpay-action="cancel">Cancel</button>
                             </div>
-                            <p class="altpay-status-line" style="margin-top:10px;">
+                            <p class="altpay-status-line">
                                 Status: <strong class="altpay-status-text">waiting…</strong>
-                                <span class="altpay-observed" style="color:#0a7d22; display:none;"></span>
+                                <span class="altpay-observed" hidden></span>
                             </p>
                         </div>
                     </div>
