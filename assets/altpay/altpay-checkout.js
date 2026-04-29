@@ -19,7 +19,12 @@
 
     /* ── Currency formatting ────────────────────────────────────── */
 
+    // Real on-chain decimals (used for the precise value that goes into
+    // localStorage / URLs / debug). Display decimals are capped tighter
+    // because 0.04303092632675104 ETH is unreadable in a UI.
     const CHAIN_DECIMALS = { btc: 8, eth: 18, sol: 9 };
+    const DISPLAY_DECIMALS = { btc: 8, eth: 6, sol: 4 };
+
     function formatChainAmount(chain, minorStr) {
         const decimals = CHAIN_DECIMALS[chain] || 0;
         if (!minorStr || minorStr === '0') return { major: '0', minor: '0', symbol: chain.toUpperCase() };
@@ -28,11 +33,17 @@
             const big = BigInt(minorStr);
             const base = BigInt(10) ** BigInt(decimals);
             const whole = (big / base).toString();
-            const frac = (big % base).toString().padStart(decimals, '0').replace(/0+$/, '');
-            major = frac ? whole + '.' + frac : whole;
+            const frac = (big % base).toString().padStart(decimals, '0');
+            const displayDp = DISPLAY_DECIMALS[chain] != null ? DISPLAY_DECIMALS[chain] : decimals;
+            // Trim fractional part to displayDp (no rounding, just slice — under
+            // a 1% tolerance band it doesn't matter, and rounding up could lead
+            // a customer to overpay slightly).
+            const fracTrimmed = frac.slice(0, displayDp).replace(/0+$/, '');
+            major = fracTrimmed ? whole + '.' + fracTrimmed : whole;
         } catch (e) {
             const f = Number(minorStr) / Math.pow(10, decimals);
-            major = f.toString();
+            const dp = DISPLAY_DECIMALS[chain] != null ? DISPLAY_DECIMALS[chain] : 8;
+            major = f.toFixed(dp).replace(/0+$/, '').replace(/\.$/, '');
         }
         return { major: major, minor: minorStr, symbol: chain.toUpperCase() };
     }
