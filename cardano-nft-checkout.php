@@ -538,6 +538,7 @@ function cardanomint_mint_manager_page() {
             'collection_image_id' => isset($_POST['cardanonftcollectionimageid']) && !empty($_POST['cardanonftcollectionimageid']) ? intval($_POST['cardanonftcollectionimageid']) : null,
             'preview_image_id' => isset($_POST['cardanonftpreviewimageid']) && !empty($_POST['cardanonftpreviewimageid']) ? intval($_POST['cardanonftpreviewimageid']) : null,
             'preview_ipfs_cid_manual' => isset($_POST['preview_ipfs_cid_manual']) ? sanitize_text_field($_POST['preview_ipfs_cid_manual']) : null,
+            'preview_media_type' => isset($_POST['preview_media_type']) ? sanitize_text_field($_POST['preview_media_type']) : null,
             'nft_metadata' => isset($_POST['cardanonftnftmetadata']) ? stripslashes($_POST['cardanonftnftmetadata']) : null,
             'policy_json' => $policy_json_validated,  // Validated JSON
             'quantity_total' => isset($_POST['cardanonftquantity']) ? intval($_POST['cardanonftquantity']) : 1,

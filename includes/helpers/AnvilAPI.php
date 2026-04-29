@@ -259,7 +259,8 @@ class AnvilAPI {
 
         // Resolve the preview image. Priority:
         //   1. preview_ipfs_cid_manual on the mint row (manual paste)
-        //   2. preview_image_id WP attachment URL + mime
+        //      mime: preview_media_type column if set, else image/png
+        //   2. preview_image_id WP attachment URL + auto-detected mime
         //   3. previewImage / previewMediaType inside user nft_metadata JSON
         //      (legacy / advanced override)
         $preview_image      = '';
@@ -267,7 +268,9 @@ class AnvilAPI {
 
         if (!empty($mint_data['preview_ipfs_cid_manual'])) {
             $preview_image      = 'ipfs://' . $mint_data['preview_ipfs_cid_manual'];
-            $preview_media_type = 'image/png';
+            $preview_media_type = !empty($mint_data['preview_media_type'])
+                ? (string) $mint_data['preview_media_type']
+                : 'image/png';
         } elseif (!empty($mint_data['preview_image_id'])) {
             $url = wp_get_attachment_url($mint_data['preview_image_id']);
             if ($url) {
@@ -289,12 +292,18 @@ class AnvilAPI {
             'name'        => $nft_name,
             'description' => $nft_description,
         );
-        if (!$is_av_asset) {
-            $cip25_metadata['image']     = $nft_image;
-            $cip25_metadata['mediaType'] = $nft_media_type;
-        } elseif ($preview_image !== '') {
+        // Top-level image priority (regardless of asset type):
+        //   1. Explicit preview wins — gives the operator full control
+        //      over the wallet thumbnail even on image assets.
+        //   2. Otherwise, image assets fall back to using the asset itself.
+        //   3. AV assets without a preview omit the top-level pair so
+        //      the metadata isn't ambiguous (no thumbnail rendered).
+        if ($preview_image !== '') {
             $cip25_metadata['image']     = $preview_image;
             $cip25_metadata['mediaType'] = $preview_media_type;
+        } elseif (!$is_av_asset) {
+            $cip25_metadata['image']     = $nft_image;
+            $cip25_metadata['mediaType'] = $nft_media_type;
         }
 
         // Add any additional user-defined metadata attributes

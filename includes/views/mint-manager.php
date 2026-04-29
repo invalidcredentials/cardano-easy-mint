@@ -208,6 +208,17 @@ if ($editMode && $editData) {
                                size="60"
                                maxlength="60"
                                style="padding: 8px; font-family: monospace; font-size: 13px; width: auto;" />
+                        <label style="margin-left: 12px; font-size: 12px; color: #374151;">
+                            Format:
+                            <?php $pmt = $editMode && $editData ? ($editData['preview_media_type'] ?? '') : ''; ?>
+                            <select name="preview_media_type" id="preview_media_type" style="padding: 6px; font-size: 13px;">
+                                <option value="image/png"  <?php selected($pmt, 'image/png'); ?>>PNG</option>
+                                <option value="image/gif"  <?php selected($pmt, 'image/gif'); ?>>GIF</option>
+                                <option value="image/jpeg" <?php selected($pmt, 'image/jpeg'); ?>>JPEG</option>
+                                <option value="image/webp" <?php selected($pmt, 'image/webp'); ?>>WebP</option>
+                                <option value="image/svg+xml" <?php selected($pmt, 'image/svg+xml'); ?>>SVG</option>
+                            </select>
+                        </label>
                         <p id="preview-ipfs-validation" style="margin-top: 8px; margin-bottom: 8px; font-size: 12px; display: none;"></p>
                         <div id="preview-ipfs-display" style="margin-top: 10px; display: none;">
                             <img id="preview-ipfs-img" src="" style="max-width: 150px; max-height: 150px; border-radius: 4px; border: 2px solid #c9a84c;" />

@@ -178,6 +178,11 @@ class MintModel {
         if (empty($col2)) {
             $wpdb->query("ALTER TABLE $table ADD COLUMN preview_ipfs_cid_manual varchar(60) DEFAULT NULL AFTER preview_image_id");
         }
+
+        $col3 = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'preview_media_type'");
+        if (empty($col3)) {
+            $wpdb->query("ALTER TABLE $table ADD COLUMN preview_media_type varchar(50) DEFAULT NULL AFTER preview_ipfs_cid_manual");
+        }
     }
 
     /**
@@ -305,6 +310,9 @@ class MintModel {
             'ipfs_cid' => isset($mintData['ipfs_cid']) ? $mintData['ipfs_cid'] : null,
             'ipfs_cid_manual' => isset($mintData['ipfs_cid_manual']) ? $mintData['ipfs_cid_manual'] : null,
             'collection_image_id' => isset($mintData['collection_image_id']) ? intval($mintData['collection_image_id']) : null,
+            'preview_image_id' => isset($mintData['preview_image_id']) ? intval($mintData['preview_image_id']) : null,
+            'preview_ipfs_cid_manual' => isset($mintData['preview_ipfs_cid_manual']) ? $mintData['preview_ipfs_cid_manual'] : null,
+            'preview_media_type' => isset($mintData['preview_media_type']) ? $mintData['preview_media_type'] : null,
             'nft_metadata' => isset($mintData['nft_metadata']) ? $mintData['nft_metadata'] : null,
             'policy_json' => isset($mintData['policy_json']) ? $mintData['policy_json'] : null,
             'quantity_total' => isset($mintData['quantity_total']) ? intval($mintData['quantity_total']) : 1,
@@ -342,6 +350,9 @@ class MintModel {
             'ipfs_cid' => isset($mint['ipfs_cid']) ? $mint['ipfs_cid'] : null,
             'ipfs_cid_manual' => isset($mint['ipfs_cid_manual']) ? $mint['ipfs_cid_manual'] : null,
             'collection_image_id' => isset($mint['collection_image_id']) ? intval($mint['collection_image_id']) : null,
+            'preview_image_id' => isset($mint['preview_image_id']) ? intval($mint['preview_image_id']) : null,
+            'preview_ipfs_cid_manual' => isset($mint['preview_ipfs_cid_manual']) ? $mint['preview_ipfs_cid_manual'] : null,
+            'preview_media_type' => isset($mint['preview_media_type']) ? $mint['preview_media_type'] : null,
             'nft_metadata' => isset($mint['nft_metadata']) ? $mint['nft_metadata'] : null,
             'policy_json' => isset($mint['policy_json']) ? $mint['policy_json'] : null,
             'quantity_total' => isset($mint['quantity_total']) ? intval($mint['quantity_total']) : 1,
