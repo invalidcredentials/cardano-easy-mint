@@ -113,6 +113,50 @@ $nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
                         </div>
                         <button type="button" id="connect-wallet-btn" class="btn-connect-wallet">Connect Wallet</button>
                     </div>
+
+                    <?php
+                    $altpay_enabled = get_option('cardano_mint_altpay_enabled', '0') === '1';
+                    $altpay_chains  = [];
+                    if ($altpay_enabled && class_exists('CardanoMintPay\\Models\\ChainWalletModel')) {
+                        foreach (['btc', 'eth', 'sol'] as $c) {
+                            $rows = \CardanoMintPay\Models\ChainWalletModel::list_for_chain($c, false);
+                            if (!empty($rows)) $altpay_chains[] = $c;
+                        }
+                    }
+                    if ($altpay_enabled && !empty($altpay_chains)):
+                        $service_fee = (int) get_option('cardano_mint_service_fee_ada', 5);
+                    ?>
+                    <div class="altpay-picker" id="altpay-picker" style="display:none; margin-top: 14px;" data-mint-id="<?php echo esc_attr($mint ? (int)($mint['collection_id'] ?? $mint['id']) : 0); ?>">
+                        <h4 style="margin: 6px 0 8px 0;">Pay with</h4>
+                        <div class="altpay-chips" style="display:flex; flex-wrap:wrap; gap:8px;">
+                            <button type="button" class="altpay-chip is-active" data-altpay-chain="ada">ADA</button>
+                            <?php foreach ($altpay_chains as $c): ?>
+                                <button type="button" class="altpay-chip" data-altpay-chain="<?php echo esc_attr($c); ?>"><?php echo esc_html(strtoupper($c)); ?></button>
+                            <?php endforeach; ?>
+                        </div>
+                        <p class="altpay-hint" style="font-size:12px; color:#666; margin-top:8px;">
+                            Paying with another chain still uses your connected Cardano wallet to sign and pay a small <?php echo (int) $service_fee; ?> ADA service fee + ~0.17 ADA network fee + 1 ADA receipt. Make sure your Cardano wallet has at least <?php echo (int) ($service_fee + 2); ?> ADA available.
+                        </p>
+
+                        <div class="altpay-pay-panel" id="altpay-pay-panel" style="display:none; margin-top: 12px; padding: 14px; border:1px solid #ddd; border-radius:6px; background:#fafafa;">
+                            <p class="altpay-pay-instructions">
+                                Send <strong><span class="altpay-amount-display">—</span></strong> to the address below. We watch the chain and unlock the next step automatically.
+                            </p>
+                            <div class="altpay-address-row" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                                <code class="altpay-address" style="word-break:break-all; padding:6px 10px; background:#fff; border:1px solid #ddd; border-radius:4px; font-size:13px;">—</code>
+                                <button type="button" class="button button-small" data-altpay-action="copy-address">Copy</button>
+                                <button type="button" class="button button-small" data-altpay-action="cancel">Cancel</button>
+                            </div>
+                            <p class="altpay-status-line" style="margin-top:10px;">
+                                Status: <strong class="altpay-status-text">waiting…</strong>
+                                <span class="altpay-observed" style="color:#0a7d22; display:none;"></span>
+                            </p>
+                        </div>
+                    </div>
+                    <input type="hidden" id="altpay-invoice-id" value="">
+                    <input type="hidden" id="altpay-chain"      value="ada">
+                    <?php endif; ?>
+
                     <button type="button" class="btn-next" id="proceed-to-confirm" style="display: none;">Continue to Mint</button>
                 </div>
 

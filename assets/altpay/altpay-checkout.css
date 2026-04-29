@@ -1,0 +1,25 @@
+.altpay-picker { font-size: 14px; }
+
+.altpay-chips { gap: 8px; }
+.altpay-chip {
+    cursor: pointer;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid #d0d0d0;
+    background: #fff;
+    color: #222;
+    font-weight: 500;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.altpay-chip:hover { border-color: #888; }
+.altpay-chip.is-active {
+    background: #111;
+    color: #fff;
+    border-color: #111;
+}
+
+.altpay-pay-panel code.altpay-address { font-size: 13px; }
+.altpay-pay-panel .altpay-status-text { text-transform: capitalize; }
+.altpay-pay-panel .altpay-amount-display { font-family: ui-monospace, SFMono-Regular, monospace; }
+
+#proceed-to-confirm[disabled] { pointer-events: none; }

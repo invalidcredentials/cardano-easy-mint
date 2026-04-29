@@ -140,9 +140,26 @@ class NFTCheckoutController {
         if (!wp_style_is('cardano-checkout-css', 'enqueued')) {
             wp_enqueue_style('cardano-checkout-css', plugin_dir_url(__FILE__) . '../../assets/cardano-checkout.css', [], '1.0.0');
         }
-        
+
+        // Alt-pay checkout JS / CSS — only when the operator turned the
+        // feature on AND has at least one chain wallet configured. Otherwise
+        // the existing ADA-only flow is byte-for-byte unchanged.
+        if (get_option('cardano_mint_altpay_enabled', '0') === '1' && class_exists('CardanoMintPay\\Models\\ChainWalletModel')) {
+            $any_chain = false;
+            foreach (['btc', 'eth', 'sol'] as $c) {
+                if (!empty(\CardanoMintPay\Models\ChainWalletModel::list_for_chain($c, false))) { $any_chain = true; break; }
+            }
+            if ($any_chain) {
+                wp_enqueue_style('cardano-altpay-checkout-css', plugin_dir_url(__FILE__) . '../../assets/altpay/altpay-checkout.css', [], '0.1.0');
+                wp_enqueue_script('cardano-altpay-checkout-js', plugin_dir_url(__FILE__) . '../../assets/altpay/altpay-checkout.js', [], '0.1.0', true);
+                wp_localize_script('cardano-altpay-checkout-js', 'cardanoAltPayCheckout', [
+                    'restUrl' => esc_url_raw(rest_url('cardano-mint/v1')),
+                ]);
+            }
+        }
+
         // Note: Script and localization are handled by the main plugin file
-        
+
         // Prevent WordPress from adding auto-paragraphs to our shortcode output
         return '<div class="' . esc_attr($wrapper_class) . '">' . $output . '</div>';
     }
@@ -224,6 +241,29 @@ class NFTCheckoutController {
             error_log("NOTICE: Client-posted usd_price (" . $posted_usd_price . ") does not match DB price (" . $usd_price . "). Using DB price.");
         }
         error_log("Using authoritative usd_price from DB: " . $usd_price);
+
+        // Alt-pay path: validate the funded invoice and override the merchant
+        // lovelace output with the configured ADA service fee. The bulk of
+        // the customer's payment already cleared on the alt chain.
+        $invoice_id = intval($_POST['invoice_id'] ?? 0);
+        $altpay_invoice = null;
+        if ($invoice_id > 0 && class_exists('CardanoMintPay\\Models\\ChainInvoiceModel')) {
+            $altpay_invoice = \CardanoMintPay\Models\ChainInvoiceModel::get($invoice_id);
+            if (!$altpay_invoice) {
+                wp_send_json_error(['message' => 'Alt-pay invoice not found.']);
+            }
+            if ($altpay_invoice['status'] !== 'funded') {
+                wp_send_json_error(['message' => 'Alt-pay invoice not funded yet (status: ' . $altpay_invoice['status'] . ').']);
+            }
+            if ($altpay_invoice['customer_cardano_address'] !== $customer_address) {
+                wp_send_json_error(['message' => 'Alt-pay invoice does not belong to this Cardano address.']);
+            }
+            $service_fee_ada = (float) get_option('cardano_mint_service_fee_ada', 5);
+            if ($service_fee_ada < 2)  $service_fee_ada = 2;
+            if ($service_fee_ada > 20) $service_fee_ada = 20;
+            $mint_data['_altpay_service_fee_ada_override'] = $service_fee_ada;
+            error_log("[AltPay] legacy build: invoice $invoice_id -> service fee $service_fee_ada ADA");
+        }
 
         // Check per-wallet mint limits BEFORE building transaction
         $mints_allowed = intval($mint_data['mintsallowedperwallet'] ?? 0);
@@ -344,6 +384,13 @@ class NFTCheckoutController {
                 error_log("✅ CIP-27 royalty token marked as minted for policy: " . $policy_id);
             } else {
                 error_log("ℹ️ Royalty token already marked as minted for policy: " . $policy_id);
+            }
+
+            // Alt-pay: close out the invoice so it can't be reused for another mint.
+            $invoice_id = intval($_POST['invoice_id'] ?? 0);
+            if ($invoice_id > 0 && class_exists('CardanoMintPay\\Models\\ChainInvoiceModel')) {
+                \CardanoMintPay\Models\ChainInvoiceModel::set_status($invoice_id, 'consumed');
+                error_log("[AltPay] legacy submit: invoice $invoice_id marked consumed (tx $tx_hash)");
             }
         }
 

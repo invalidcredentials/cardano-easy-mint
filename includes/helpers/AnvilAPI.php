@@ -144,6 +144,16 @@ class AnvilAPI {
         error_log("Minting fee: " . $minting_fee);
         error_log("Total ADA amount (including minting fee): " . $total_ada_amount);
 
+        // Alt-paid override: when the customer paid for the NFT on a different
+        // chain, this Cardano tx only carries the configured ADA service fee
+        // to merchant + the 1 ADA receipt to customer + the minted asset.
+        // Honored when callers set `_altpay_service_fee_ada_override` on
+        // $mint_data; the override is the FULL merchant lovelace amount.
+        if (is_array($mint_data) && !empty($mint_data['_altpay_service_fee_ada_override'])) {
+            $total_ada_amount = (float) $mint_data['_altpay_service_fee_ada_override'];
+            error_log("[AltPay] merchant output overridden to " . $total_ada_amount . " ADA (alt-chain payment)");
+        }
+
         $receipt_amount = 1.0; // 1 ADA receipt back to customer
         error_log("Receipt amount: " . $receipt_amount);
 
