@@ -270,16 +270,20 @@ add_action('wp_enqueue_scripts', function() {
     // Load on all pages since shortcode might be in Bricks elements
     // The script will only initialize if the button exists
         
-        // Minting JS (wallet connection is embedded natively — no external dependencies)
+        // Minting JS (wallet connection is embedded natively — no external dependencies).
+        // Version is the file mtime so any git pull / edit auto-busts the
+        // browser cache without anyone remembering to bump a string.
+        $mint_js_path  = plugin_dir_path(__FILE__) . 'assets/cardano-nft-mint.js';
+        $mint_css_path = plugin_dir_path(__FILE__) . 'assets/cardano-checkout.css';
         wp_enqueue_script(
             'cardano-mint-js',
             plugin_dir_url(__FILE__) . 'assets/cardano-nft-mint.js',
             ['jquery'],
-            '3.0.0',
+            file_exists($mint_js_path) ? filemtime($mint_js_path) : '3.0.0',
             true
         );
-        
-        wp_enqueue_style('cardano-checkout-css', plugin_dir_url(__FILE__) . 'assets/cardano-checkout.css', [], '1.0.0');
+
+        wp_enqueue_style('cardano-checkout-css', plugin_dir_url(__FILE__) . 'assets/cardano-checkout.css', [], file_exists($mint_css_path) ? filemtime($mint_css_path) : '1.0.0');
         
         // Localize script for AJAX
         wp_localize_script('cardano-mint-js', 'cardanoMint', [
