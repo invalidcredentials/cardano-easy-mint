@@ -153,7 +153,8 @@ class NFTCheckoutController {
                 wp_enqueue_style('cardano-altpay-checkout-css', plugin_dir_url(__FILE__) . '../../assets/altpay/altpay-checkout.css', [], '0.1.0');
                 wp_enqueue_script('cardano-altpay-checkout-js', plugin_dir_url(__FILE__) . '../../assets/altpay/altpay-checkout.js', [], '0.1.0', true);
                 wp_localize_script('cardano-altpay-checkout-js', 'cardanoAltPayCheckout', [
-                    'restUrl' => esc_url_raw(rest_url('cardano-mint/v1')),
+                    'restUrl'       => esc_url_raw(rest_url('cardano-mint/v1')),
+                    'serviceFeeAda' => (int) get_option('cardano_mint_service_fee_ada', 5),
                 ]);
             }
         }
