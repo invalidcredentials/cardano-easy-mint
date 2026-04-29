@@ -956,12 +956,13 @@
                     
                     // Step 2: Sign transaction
                     console.log('Please sign the transaction in your wallet...');
-                    console.log('[CardanoMint] buildData keys:', Object.keys(buildData || {}));
+                    console.log('[CardanoMint] buildData FULL:', JSON.parse(JSON.stringify(buildData || {})));
                     if (buildData && buildData.complete) {
                         var txHex = buildData.complete;
-                        console.log('[CardanoMint] tx CBOR length:', txHex.length, 'first 80 chars:', String(txHex).slice(0, 80));
+                        console.log('[CardanoMint] tx CBOR length:', txHex.length);
+                        console.log('[CardanoMint] tx CBOR (paste into a decoder):\n', txHex);
                     } else {
-                        console.warn('[CardanoMint] no `complete` field on buildData — Anvil may have returned an empty tx', buildData);
+                        console.warn('[CardanoMint] no `complete` field on buildData', buildData);
                     }
                     let signature;
                     try {
