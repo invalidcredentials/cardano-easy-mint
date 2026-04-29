@@ -1044,6 +1044,14 @@
         formData.append('policy_id', policyId);
         formData.append('asset_id', assetId);
 
+        // Alt-pay: when the customer paid on a non-Cardano chain, the funded
+        // invoice_id sits in a hidden input dropped by altpay-checkout.js. The
+        // server uses it to override the merchant lovelace output.
+        const altpayInvoiceField = document.getElementById('altpay-invoice-id');
+        if (altpayInvoiceField && altpayInvoiceField.value) {
+            formData.append('invoice_id', altpayInvoiceField.value);
+        }
+
         // DEBUG: Log FormData contents
         console.log('=== FORM DATA BEING SENT ===');
         for (let pair of formData.entries()) {
@@ -1092,6 +1100,11 @@
         formData.append('policy_id', policyId);
         formData.append('wallet_address', walletAddress);
         formData.append('asset_id', assetId);
+
+        const altpayInvoiceFieldSubmit = document.getElementById('altpay-invoice-id');
+        if (altpayInvoiceFieldSubmit && altpayInvoiceFieldSubmit.value) {
+            formData.append('invoice_id', altpayInvoiceFieldSubmit.value);
+        }
         
         const response = await fetch(cardanoMint.ajaxurl, {
             method: 'POST',

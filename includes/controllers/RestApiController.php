@@ -7,8 +7,10 @@
 namespace CardanoMintPay\Controllers;
 
 use CardanoMintPay\Models\MintModel;
+use CardanoMintPay\Models\ChainInvoiceModel;
 use CardanoMintPay\Helpers\AnvilAPI;
 use CardanoMintPay\Helpers\ApiKeys;
+use CardanoMintPay\AltPay\AltPayService;
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
@@ -134,6 +136,25 @@ class RestApiController {
             'callback'            => array( __CLASS__, 'mint_submit' ),
             'permission_callback' => array( __CLASS__, 'verify_auth' ),
         ) );
+
+        // Alt-chain payment endpoints. Public reads (status/quote) so the
+        // unauthenticated mint widget can poll without a nonce; cancel and
+        // quote both validate the mint exists, so abuse is bounded.
+        register_rest_route( self::API_NAMESPACE, '/altpay/quote', array(
+            'methods'             => 'POST',
+            'callback'            => array( __CLASS__, 'altpay_quote' ),
+            'permission_callback' => '__return_true',
+        ) );
+        register_rest_route( self::API_NAMESPACE, '/altpay/status', array(
+            'methods'             => 'GET',
+            'callback'            => array( __CLASS__, 'altpay_status' ),
+            'permission_callback' => '__return_true',
+        ) );
+        register_rest_route( self::API_NAMESPACE, '/altpay/cancel', array(
+            'methods'             => 'POST',
+            'callback'            => array( __CLASS__, 'altpay_cancel' ),
+            'permission_callback' => '__return_true',
+        ) );
     }
 
     /* ── Handlers ─────────────────────────────────────────────────── */
@@ -189,9 +210,27 @@ class RestApiController {
         $collection_id    = (int) ( $params['collection_id'] ?? 0 );
         $variant          = sanitize_text_field( $params['variant'] ?? '' );
         $customer_address = sanitize_text_field( $params['customer_address'] ?? '' );
+        $invoice_id       = (int) ( $params['invoice_id'] ?? 0 );
 
         if ( ! $collection_id || ! $customer_address ) {
             return new \WP_REST_Response( array( 'error' => 'collection_id and customer_address are required.' ), 400 );
+        }
+
+        // Alt-paid path: validate the invoice is funded and bound to this
+        // customer / mint before we spend the policy wallet's signature on
+        // the cheaper service-fee transaction.
+        $altpay_invoice = null;
+        if ( $invoice_id > 0 ) {
+            $altpay_invoice = ChainInvoiceModel::get( $invoice_id );
+            if ( ! $altpay_invoice ) {
+                return new \WP_REST_Response( array( 'error' => 'Alt-pay invoice not found.' ), 404 );
+            }
+            if ( $altpay_invoice['status'] !== 'funded' ) {
+                return new \WP_REST_Response( array( 'error' => 'Alt-pay invoice is not funded yet (status: ' . $altpay_invoice['status'] . ').' ), 400 );
+            }
+            if ( $altpay_invoice['customer_cardano_address'] !== $customer_address ) {
+                return new \WP_REST_Response( array( 'error' => 'Alt-pay invoice does not belong to this Cardano address.' ), 403 );
+            }
         }
 
         // Look up the mint data.
@@ -225,6 +264,18 @@ class RestApiController {
             return new \WP_REST_Response( array( 'error' => 'No policy ID for this mint.' ), 500 );
         }
 
+        // For an alt-paid mint, override the merchant lovelace output with a
+        // flat service fee. The customer's wallet still has to fund this and
+        // sign, but the bulk of the payment already happened on the alt
+        // chain. AnvilAPI honors `_altpay_service_fee_ada_override` on the
+        // mint_data payload.
+        if ( $altpay_invoice ) {
+            $service_fee_ada = (float) get_option( 'cardano_mint_service_fee_ada', 5 );
+            if ( $service_fee_ada < 2 )  $service_fee_ada = 2;
+            if ( $service_fee_ada > 20 ) $service_fee_ada = 20;
+            $asset['_altpay_service_fee_ada_override'] = $service_fee_ada;
+        }
+
         // Build mint transaction via Anvil.
         $result = AnvilAPI::buildMintTransaction(
             $merchant_address,
@@ -245,6 +296,10 @@ class RestApiController {
             $result['asset_id']     = (int) $asset['id'];
             $result['collection_id'] = (int) ( $asset['collection_id'] ?? $collection_id );
             $result['policy_id']    = $policy_id;
+            if ( $altpay_invoice ) {
+                $result['invoice_id']   = (int) $altpay_invoice['id'];
+                $result['payment_mode'] = 'altpay';
+            }
         }
 
         return new \WP_REST_Response( $result );
@@ -262,6 +317,7 @@ class RestApiController {
         $policy_id       = sanitize_text_field( $params['policy_id'] ?? '' );
         $asset_id        = (int) ( $params['asset_id'] ?? 0 );
         $wallet_address  = sanitize_text_field( $params['wallet_address'] ?? '' );
+        $invoice_id      = (int) ( $params['invoice_id'] ?? 0 );
 
         if ( empty( $transaction ) ) {
             return new \WP_REST_Response( array( 'error' => 'Transaction data is required.' ), 400 );
@@ -299,9 +355,69 @@ class RestApiController {
                 MintModel::recordMint( $policy_id, $wallet_address, null, $mints_allowed );
                 MintModel::incrementMintCount( $policy_id, $wallet_address );
             }
+
+            if ( $invoice_id > 0 ) {
+                ChainInvoiceModel::set_status( $invoice_id, 'consumed' );
+                error_log( '[CardanoMint AltPay] invoice ' . $invoice_id . ' marked consumed (tx ' . $tx_hash . ')' );
+            }
         }
 
         return new \WP_REST_Response( $result );
+    }
+
+    /* ── Alt-chain payment endpoints ─────────────────────────────── */
+
+    /**
+     * Issue a new payment intent for a mint on a non-Cardano chain.
+     * Accepts {mint_id, payment_method, customer_cardano_address}.
+     */
+    public static function altpay_quote( \WP_REST_Request $request ): \WP_REST_Response {
+        if ( get_option( 'cardano_mint_altpay_enabled', '0' ) !== '1' ) {
+            return new \WP_REST_Response( array( 'error' => 'Alt-chain payments are disabled.' ), 403 );
+        }
+
+        $params  = $request->get_json_params() ?: array();
+        $mint_id = (int) ( $params['mint_id'] ?? 0 );
+        $chain   = sanitize_key( $params['payment_method'] ?? '' );
+        $caddr   = sanitize_text_field( $params['customer_cardano_address'] ?? '' );
+
+        if ( ! $mint_id || ! $chain || ! $caddr ) {
+            return new \WP_REST_Response( array( 'error' => 'mint_id, payment_method, and customer_cardano_address are required.' ), 400 );
+        }
+
+        // Soft per-IP rate limit. Each quote burns an HD index, so this also
+        // bounds address-graph enumeration cost.
+        $ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( $_SERVER['REMOTE_ADDR'] ) : 'unknown';
+        $rl_key = 'cm_altpay_quote_rl_' . md5( $ip );
+        $rl_ct  = (int) get_transient( $rl_key );
+        if ( $rl_ct >= 5 ) {
+            return new \WP_REST_Response( array( 'error' => 'Too many quote requests, slow down.' ), 429 );
+        }
+        set_transient( $rl_key, $rl_ct + 1, 60 );
+
+        $res = AltPayService::quote( $mint_id, $chain, $caddr );
+        if ( is_wp_error( $res ) ) {
+            return new \WP_REST_Response( array( 'error' => $res->get_error_message() ), 400 );
+        }
+        return new \WP_REST_Response( $res );
+    }
+
+    public static function altpay_status( \WP_REST_Request $request ): \WP_REST_Response {
+        $invoice_id = (int) $request->get_param( 'invoice_id' );
+        if ( $invoice_id <= 0 ) {
+            return new \WP_REST_Response( array( 'error' => 'invoice_id required.' ), 400 );
+        }
+        return new \WP_REST_Response( AltPayService::status( $invoice_id ) );
+    }
+
+    public static function altpay_cancel( \WP_REST_Request $request ): \WP_REST_Response {
+        $params = $request->get_json_params() ?: array();
+        $invoice_id = (int) ( $params['invoice_id'] ?? 0 );
+        if ( $invoice_id <= 0 ) {
+            return new \WP_REST_Response( array( 'error' => 'invoice_id required.' ), 400 );
+        }
+        $ok = AltPayService::cancel( $invoice_id );
+        return new \WP_REST_Response( array( 'cancelled' => (bool) $ok ) );
     }
 
     /* ── Formatting ───────────────────────────────────────────────── */
