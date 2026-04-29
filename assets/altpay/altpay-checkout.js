@@ -189,6 +189,88 @@
         let pollHandle = null;
         let countdownHandle = null;
 
+        // Wipe any alt-pay state stamped onto the receipt during a previous
+        // mint session, so the next mint sees a pristine ADA-priced receipt.
+        // Called: (a) on modal re-open, (b) after a successful mint completes,
+        // (c) when the user explicitly cancels an alt-pay session.
+        // Note: this does NOT clear localStorage by itself — the caller chooses
+        // whether to also call clearInvoice() (e.g. mint-completed should; a
+        // cosmetic refresh on modal open should not, so resume banners still work).
+        function restoreAdaReceipt() {
+            // Drop the injected line items + banner.
+            ['review-altpay-service-line', 'review-altpay-receipt-line', 'altpay-receipt-banner']
+                .forEach(function (id) {
+                    const el = document.getElementById(id);
+                    if (el && el.parentNode) el.parentNode.removeChild(el);
+                });
+
+            // Restore NFT Mint Price line from per-unit data attrs (set by
+            // nft-mint-form.php). Falls back to leaving the text alone if the
+            // attrs are missing for any reason.
+            const $nftUsd = document.getElementById('review-nft-price-usd');
+            const $nftAda = document.getElementById('review-nft-price-ada');
+            if ($nftUsd && $nftUsd.dataset.unitUsd) {
+                $nftUsd.textContent = '$' + parseFloat($nftUsd.dataset.unitUsd).toFixed(2) + ' USD';
+            }
+            if ($nftAda && ($nftAda.dataset.unitAda || ($nftUsd && $nftUsd.dataset.unitAda))) {
+                const ada = parseFloat($nftAda.dataset.unitAda || $nftUsd.dataset.unitAda);
+                $nftAda.textContent = ada.toFixed(4) + ' ADA';
+            }
+
+            // Restore the running total from its own per-unit data attrs.
+            const $totUsd = document.getElementById('review-total-usd');
+            const $totAda = document.getElementById('review-total-ada');
+            if ($totUsd && $totUsd.dataset.unitUsd) {
+                $totUsd.textContent = '$' + parseFloat($totUsd.dataset.unitUsd).toFixed(2) + ' USD';
+            }
+            if ($totAda && $totAda.dataset.unitAda) {
+                $totAda.textContent = parseFloat($totAda.dataset.unitAda).toFixed(2) + ' ADA';
+            }
+
+            // Re-show the static UTxO note (alt-pay had hidden it).
+            const utxoNote = document.querySelector('.receipt-info-text');
+            if (utxoNote) utxoNote.style.display = '';
+
+            // Detach the alt-pay flags so the rest of the JS treats the
+            // receipt as a vanilla ADA mint.
+            if (invoiceField) invoiceField.value = '';
+            if (chainField)   chainField.value   = 'ada';
+
+            // Reset chip UI to ADA so the picker doesn't lie about state.
+            picker.querySelectorAll('[data-altpay-chain]').forEach(function (b) {
+                b.classList.toggle('is-active', b.getAttribute('data-altpay-chain') === 'ada');
+            });
+            // Hide the active pay panel — picking ADA is the pristine state.
+            if (active)  active.hidden = true;
+            if (preinit) preinit.hidden = true;
+
+            stopPolling();
+            stopCountdown();
+        }
+
+        // Run restoreAdaReceipt the moment the user reopens the modal so any
+        // leftover overlay from a previous successful mint is wiped before
+        // the resume-banner logic decides whether to re-attach to a session.
+        const mintNowBtn = document.getElementById('cardano-mint-now-btn');
+        if (mintNowBtn) {
+            mintNowBtn.addEventListener('click', function () {
+                restoreAdaReceipt();
+                // Quantity stepper might also be in a stale state; cardano-nft-mint.js
+                // re-runs setupQuantityStepper on Step 2 entry, which will re-show
+                // it now that isAltPayActive() returns false again.
+            });
+        }
+
+        // After a successful mint, cardano-nft-mint.js fires kg:mint-completed.
+        // Clear the localStorage session for the active chain (if any) AND
+        // wipe the receipt overlay, so the next mint starts clean.
+        document.addEventListener('kg:mint-completed', function (ev) {
+            const chain = (ev && ev.detail && ev.detail.chain) || (chainField ? chainField.value : '') || '';
+            if (chain && chain !== 'ada') clearInvoice(mintId, chain);
+            restoreAdaReceipt();
+            renderResumeBanners();
+        });
+
         function getCustomerCardanoAddress() {
             const el = document.getElementById('connected-wallet-address');
             return el ? (el.textContent || '').trim() : '';
