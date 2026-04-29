@@ -149,7 +149,9 @@ class AnvilAPI {
         // to merchant + the 1 ADA receipt to customer + the minted asset.
         // Honored when callers set `_altpay_service_fee_ada_override` on
         // $mint_data; the override is the FULL merchant lovelace amount.
+        $altpay_override_used = false;
         if (is_array($mint_data) && !empty($mint_data['_altpay_service_fee_ada_override'])) {
+            $altpay_override_used = true;
             $total_ada_amount = (float) $mint_data['_altpay_service_fee_ada_override'];
             error_log("[AltPay] merchant output overridden to " . $total_ada_amount . " ADA (alt-chain payment)");
         }
