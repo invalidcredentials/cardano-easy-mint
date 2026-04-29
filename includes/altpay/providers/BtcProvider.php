@@ -215,7 +215,12 @@ class BtcProvider implements ChainPaymentProvider {
 
             $rawHex = bin2hex($raw);
             $hash = $rpc->broadcastRaw($rawHex, $network);
-            if (!$hash) throw new \RuntimeException('mempool.space broadcast failed');
+            if (is_array($hash) && isset($hash['__error'])) {
+                throw new \RuntimeException('Bitcoin RPC: ' . $hash['__error']);
+            }
+            if (!is_string($hash) || $hash === '') {
+                throw new \RuntimeException('mempool.space broadcast returned no txid');
+            }
             return ['tx_hash' => $hash, 'raw_tx' => $rawHex];
         } finally {
             if (isset($priv32)) { $priv32 = null; unset($priv32); }

@@ -47,17 +47,30 @@ class MempoolClient {
         return $network === 'mainnet' ? 20 : 2;
     }
 
-    public function broadcastRaw(string $rawHex, string $network): ?string {
+    /**
+     * Returns the txid string on success, or ['__error' => msg] on
+     * transport / mempool error so the caller can surface the real
+     * reason ('insufficient-fee', 'min-relay-fee-not-met',
+     * 'bad-txns-inputs-missingorspent', etc.).
+     */
+    public function broadcastRaw(string $rawHex, string $network) {
         $base = $this->baseUrl($network);
         $resp = wp_remote_post($base . '/tx', [
             'timeout' => 15,
             'headers' => ['Content-Type' => 'text/plain'],
             'body'    => $rawHex,
         ]);
-        if (is_wp_error($resp)) return null;
+        if (is_wp_error($resp)) {
+            error_log('[CardanoMint AltPay] BTC broadcast transport failed: ' . $resp->get_error_message());
+            return ['__error' => 'transport: ' . $resp->get_error_message()];
+        }
+        $code = (int) wp_remote_retrieve_response_code($resp);
         $body = trim(wp_remote_retrieve_body($resp));
-        if ($body === '' || stripos($body, 'error') !== false) return null;
-        // mempool.space returns the txid as plain text.
+        if ($code !== 200 || $body === '' || stripos($body, 'error') === 0) {
+            error_log('[CardanoMint AltPay] BTC broadcast HTTP ' . $code . ': ' . substr($body, 0, 400));
+            return ['__error' => 'mempool ' . $code . ': ' . substr($body, 0, 220)];
+        }
+        // mempool.space returns the txid as plain text on success.
         return $body;
     }
 

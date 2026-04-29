@@ -72,11 +72,14 @@ class EthRpcClient {
         return ['tip' => $tip, 'maxFee' => $maxFee, 'baseFee' => $base];
     }
 
-    public function sendRawTransaction(string $network, string $rawHex): ?string {
+    /**
+     * Returns the tx hash on success, or ['__error' => msg] on RPC error.
+     * The provider unpacks __error and rethrows a useful message.
+     */
+    public function sendRawTransaction(string $network, string $rawHex) {
         $url = $this->rpcUrl($network);
         if (strpos($rawHex, '0x') !== 0) $rawHex = '0x' . $rawHex;
-        $r = $this->call($url, 'eth_sendRawTransaction', [$rawHex]);
-        return is_string($r) ? $r : null;
+        return $this->call($url, 'eth_sendRawTransaction', [$rawHex]);
     }
 
     public function checkAddressBalance(string $address, string $network): array {
@@ -98,7 +101,13 @@ class EthRpcClient {
         ];
     }
 
-    /** Returns the JSON-RPC `result` field as-is, or null on error. */
+    /**
+     * Returns the JSON-RPC `result` field on success or
+     * ['__error' => msg] on RPC error. Read methods (chainId, nonce,
+     * feeHistory) keep their existing call sites because they treat
+     * '__error' arrays as null via array semantics; the write paths
+     * (sendRawTransaction) check for '__error' explicitly.
+     */
     public function call(string $url, string $method, array $params) {
         $payload = wp_json_encode([
             'jsonrpc' => '2.0',
@@ -107,20 +116,25 @@ class EthRpcClient {
             'id'      => 1,
         ]);
         $resp = wp_remote_post($url, [
-            'timeout' => 12,
+            'timeout' => 15,
             'headers' => ['Content-Type' => 'application/json'],
             'body'    => $payload,
         ]);
         if (is_wp_error($resp)) {
-            error_log('[CardanoMint AltPay] ETH RPC failed: ' . $resp->get_error_message());
-            return null;
+            $msg = $resp->get_error_message();
+            error_log('[CardanoMint AltPay] ETH RPC transport failed: ' . $msg);
+            return ['__error' => 'transport: ' . $msg];
         }
         $body = json_decode(wp_remote_retrieve_body($resp), true);
-        if (!is_array($body) || isset($body['error'])) {
-            if (isset($body['error']['message'])) {
-                error_log('[CardanoMint AltPay] ETH RPC returned error: ' . $body['error']['message']);
+        if (!is_array($body)) return ['__error' => 'non-JSON response'];
+        if (isset($body['error'])) {
+            $err = $body['error'];
+            $msg = is_array($err) ? ($err['message'] ?? wp_json_encode($err)) : (string) $err;
+            if (is_array($err) && isset($err['data'])) {
+                $msg .= ' — ' . (is_string($err['data']) ? $err['data'] : wp_json_encode($err['data']));
             }
-            return null;
+            error_log('[CardanoMint AltPay] ETH RPC returned error: ' . $msg);
+            return ['__error' => $msg];
         }
         return $body['result'] ?? null;
     }
