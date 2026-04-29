@@ -30,6 +30,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/controllers/WidgetAdminContro
 require_once plugin_dir_path(__FILE__) . 'includes/altpay/lib/Bn.php';
 require_once plugin_dir_path(__FILE__) . 'includes/altpay/lib/Secp256k1.php';
 require_once plugin_dir_path(__FILE__) . 'includes/altpay/lib/Keccak.php';
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/lib/Rlp.php';
 require_once plugin_dir_path(__FILE__) . 'includes/altpay/encoding/Bech32.php';
 require_once plugin_dir_path(__FILE__) . 'includes/altpay/encoding/Base58.php';
 require_once plugin_dir_path(__FILE__) . 'includes/altpay/encoding/KeccakAddress.php';

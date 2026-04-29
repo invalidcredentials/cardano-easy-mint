@@ -25,6 +25,42 @@ class MempoolClient {
         }
     }
 
+    public function getUtxos(string $address, string $network): array {
+        $base = $this->baseUrl($network);
+        $resp = wp_remote_get($base . '/address/' . rawurlencode($address) . '/utxo', ['timeout' => 12]);
+        if (is_wp_error($resp)) return [];
+        $body = json_decode(wp_remote_retrieve_body($resp), true);
+        return is_array($body) ? $body : [];
+    }
+
+    public function getRecommendedFeeRate(string $network): int {
+        $base = $this->baseUrl($network);
+        $resp = wp_remote_get($base . '/v1/fees/recommended', ['timeout' => 8]);
+        if (is_wp_error($resp)) return $network === 'mainnet' ? 20 : 2;
+        $body = json_decode(wp_remote_retrieve_body($resp), true);
+        if (is_array($body)) {
+            // Prefer halfHourFee; fall back to hourFee, fastestFee.
+            foreach (['halfHourFee', 'hourFee', 'fastestFee'] as $k) {
+                if (isset($body[$k]) && is_numeric($body[$k]) && $body[$k] > 0) return (int) $body[$k];
+            }
+        }
+        return $network === 'mainnet' ? 20 : 2;
+    }
+
+    public function broadcastRaw(string $rawHex, string $network): ?string {
+        $base = $this->baseUrl($network);
+        $resp = wp_remote_post($base . '/tx', [
+            'timeout' => 15,
+            'headers' => ['Content-Type' => 'text/plain'],
+            'body'    => $rawHex,
+        ]);
+        if (is_wp_error($resp)) return null;
+        $body = trim(wp_remote_retrieve_body($resp));
+        if ($body === '' || stripos($body, 'error') !== false) return null;
+        // mempool.space returns the txid as plain text.
+        return $body;
+    }
+
     public function checkAddressBalance(string $address, string $network): array {
         $base = $this->baseUrl($network);
         $resp = wp_remote_get($base . '/address/' . rawurlencode($address), ['timeout' => 10]);

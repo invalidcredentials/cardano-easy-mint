@@ -25,6 +25,60 @@ class EthRpcClient {
         }
     }
 
+    public function getNonce(string $network, string $address): int {
+        $url = $this->rpcUrl($network);
+        $hex = $this->call($url, 'eth_getTransactionCount', [strtolower($address), 'pending']);
+        if (!is_string($hex)) return 0;
+        return (int) hexdec(ltrim(str_replace('0x', '', $hex), '0') ?: '0');
+    }
+
+    public function getChainId(string $network): int {
+        $url = $this->rpcUrl($network);
+        $hex = $this->call($url, 'eth_chainId', []);
+        if (is_string($hex)) {
+            $clean = ltrim(str_replace('0x', '', $hex), '0');
+            return $clean === '' ? 0 : (int) hexdec($clean);
+        }
+        // Fall back to known mainnets if RPC didn't answer.
+        switch ($network) {
+            case 'sepolia': return 11155111;
+            case 'goerli':  return 5;
+            default:        return 1;
+        }
+    }
+
+    /**
+     * Estimate maxPriorityFeePerGas + maxFeePerGas in wei (decimal strings)
+     * using eth_feeHistory if available, with conservative fallbacks.
+     */
+    public function getEip1559Fees(string $network): array {
+        $url = $this->rpcUrl($network);
+        $r = $this->call($url, 'eth_feeHistory', ['0x4', 'pending', [25, 50, 75]]);
+        $tip   = '1500000000';   // 1.5 gwei default
+        $base  = '20000000000';  // 20 gwei default
+        if (is_array($r) && !empty($r['baseFeePerGas'])) {
+            $bfg = end($r['baseFeePerGas']);
+            $base = \CardanoMintPay\AltPay\Lib\Bn::toDec(\CardanoMintPay\AltPay\Lib\Bn::fromHex(str_replace('0x', '', (string) $bfg)));
+            if (!empty($r['reward'])) {
+                // Use the median tip across the last block.
+                $row = end($r['reward']);
+                if (is_array($row) && isset($row[1])) {
+                    $tip = \CardanoMintPay\AltPay\Lib\Bn::toDec(\CardanoMintPay\AltPay\Lib\Bn::fromHex(str_replace('0x', '', (string) $row[1])));
+                }
+            }
+        }
+        // maxFee = 2 * base + tip (cushion for block fluctuation).
+        $maxFee = bcadd(bcmul($base, '2'), $tip);
+        return ['tip' => $tip, 'maxFee' => $maxFee, 'baseFee' => $base];
+    }
+
+    public function sendRawTransaction(string $network, string $rawHex): ?string {
+        $url = $this->rpcUrl($network);
+        if (strpos($rawHex, '0x') !== 0) $rawHex = '0x' . $rawHex;
+        $r = $this->call($url, 'eth_sendRawTransaction', [$rawHex]);
+        return is_string($r) ? $r : null;
+    }
+
     public function checkAddressBalance(string $address, string $network): array {
         $url = $this->rpcUrl($network);
         $balanceHex = $this->call($url, 'eth_getBalance', [strtolower($address), 'latest']);

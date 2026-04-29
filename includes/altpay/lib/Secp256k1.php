@@ -115,6 +115,109 @@ class Secp256k1 {
     public static function bnToBin32($n): string { return Bn::toBin($n, 32); }
     public static function binToBn(string $bin)  { return Bn::fromBin($bin); }
 
+    /**
+     * ECDSA sign a 32-byte message hash with the given 32-byte private key.
+     * Uses RFC 6979 deterministic k (no entropy from system, reproducible),
+     * low-s normalization (BIP-62 / EIP-2), and emits the v/yParity recovery
+     * bit.
+     *
+     * @return array { @type string $r 32 raw bytes, @type string $s 32 raw bytes, @type int $v 0|1 }
+     */
+    public static function sign(string $priv32, string $hash32): array {
+        self::init();
+        if (strlen($priv32) !== 32) throw new \InvalidArgumentException('priv32 must be 32 bytes');
+        if (strlen($hash32) !== 32) throw new \InvalidArgumentException('hash32 must be 32 bytes');
+
+        $n  = self::$N;
+        $z  = Bn::fromBin($hash32);
+        $d  = Bn::fromBin($priv32);
+        if (Bn::isZero($d) || Bn::cmp($d, $n) >= 0) {
+            throw new \InvalidArgumentException('private key out of range');
+        }
+
+        // RFC 6979 deterministic k
+        for ($attempt = 0; $attempt < 16; $attempt++) {
+            $k = self::deterministicK($priv32, $hash32, $attempt);
+            $kBn = Bn::fromBin($k);
+            if (Bn::isZero($kBn) || Bn::cmp($kBn, $n) >= 0) continue;
+
+            $R = self::pointMul(self::$G, $kBn);
+            if ($R === null) continue;
+            $r = Bn::mod($R['x'], $n);
+            if (Bn::isZero($r)) continue;
+
+            $kInv = Bn::modInv($kBn, $n);
+            $rd   = Bn::mod(Bn::mul($r, $d), $n);
+            $sumZRD = Bn::mod(Bn::add($z, $rd), $n);
+            $s = Bn::mod(Bn::mul($kInv, $sumZRD), $n);
+            if (Bn::isZero($s)) continue;
+
+            // Low-s normalization (BIP-62 / EIP-2): if s > n/2, s = n - s.
+            // When we flip s, the recovery bit also flips.
+            $halfN = Bn::divQ($n, Bn::fromDec('2'));
+            $yParity = (int) Bn::isOdd($R['y']);
+            // Whether r needed reduction mod n. For canonical secp256k1,
+            // R.x < n almost always (~1 in 2^128 chance otherwise); we
+            // ignore the high bit for now (would set v |= 2 in that case).
+            if (Bn::cmp($s, $halfN) > 0) {
+                $s = Bn::sub($n, $s);
+                $yParity ^= 1;
+            }
+
+            return [
+                'r' => Bn::toBin($r, 32),
+                's' => Bn::toBin($s, 32),
+                'v' => $yParity,
+            ];
+        }
+        throw new \RuntimeException('ECDSA signing failed after 16 attempts');
+    }
+
+    /**
+     * RFC 6979 deterministic-k generation. Returns 32 raw bytes.
+     * On retry $attempt > 0 we extend the iteration loop to satisfy the
+     * "k must be in [1, n-1]" constraint without reaching for entropy.
+     */
+    private static function deterministicK(string $priv32, string $hash32, int $attempt): string {
+        // Step a: skipped (we feed in the hash directly)
+        // Step b: V = 0x01 * 32
+        $v = str_repeat("\x01", 32);
+        // Step c: K = 0x00 * 32
+        $k = str_repeat("\x00", 32);
+        // Step d: K = HMAC(K, V || 0x00 || priv || hash)
+        $k = hash_hmac('sha256', $v . "\x00" . $priv32 . $hash32, $k, true);
+        // Step e: V = HMAC(K, V)
+        $v = hash_hmac('sha256', $v, $k, true);
+        // Step f: K = HMAC(K, V || 0x01 || priv || hash)
+        $k = hash_hmac('sha256', $v . "\x01" . $priv32 . $hash32, $k, true);
+        // Step g: V = HMAC(K, V)
+        $v = hash_hmac('sha256', $v, $k, true);
+        // Step h: loop until valid k. Each retry past attempt 0 reseeds.
+        for ($i = 0; $i <= $attempt; $i++) {
+            $v = hash_hmac('sha256', $v, $k, true);
+        }
+        return $v;
+    }
+
+    /**
+     * DER-encode an (r, s) pair. Used by Bitcoin signature script formatting.
+     */
+    public static function derEncodeSig(string $rBin32, string $sBin32): string {
+        $rEnc = self::derEncodeInt($rBin32);
+        $sEnc = self::derEncodeInt($sBin32);
+        $body = $rEnc . $sEnc;
+        return "\x30" . chr(strlen($body)) . $body;
+    }
+
+    private static function derEncodeInt(string $bin32): string {
+        // Strip leading zero bytes.
+        $bin = ltrim($bin32, "\x00");
+        if ($bin === '') $bin = "\x00";
+        // If high bit set, prepend 0x00 to keep it a positive integer.
+        if (ord($bin[0]) & 0x80) $bin = "\x00" . $bin;
+        return "\x02" . chr(strlen($bin)) . $bin;
+    }
+
     /** Backwards-compat shims for callers still using gmp-style names. */
     public static function gmpToBin32($n): string { return self::bnToBin32($n); }
     public static function binToGmp(string $bin)  { return self::binToBn($bin); }

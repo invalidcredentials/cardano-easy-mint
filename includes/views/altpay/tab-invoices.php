@@ -106,6 +106,15 @@ $chain_options = ['' => 'Any chain', 'btc' => 'BTC', 'eth' => 'ETH', 'sol' => 'S
                     <td><?php echo esc_html(mysql2date('Y-m-d H:i', $r['created_at'])); ?></td>
                     <td>
                         <button type="button" class="button button-small" data-action="altpay-rescan" data-invoice-id="<?php echo (int) $r['id']; ?>">Rescan</button>
+                        <?php if (in_array($r['status'], ['funded','underpaid','overpaid','consumed'], true)): ?>
+                            <button type="button" class="button button-small" style="margin-top:4px;"
+                                    data-action="altpay-refund"
+                                    data-invoice-id="<?php echo (int) $r['id']; ?>"
+                                    data-chain="<?php echo esc_attr($r['chain']); ?>"
+                                    data-default-amount="<?php echo esc_attr($r['observed_amount_minor'] ?: $r['expected_amount_minor']); ?>">
+                                Refund
+                            </button>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; ?>
