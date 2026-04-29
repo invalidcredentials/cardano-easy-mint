@@ -92,7 +92,7 @@
         // cardano-nft-mint.js owns the wallet flow and we don't want to fight it.
         const observer = new MutationObserver(function () {
             if (walletDisplay && walletDisplay.style.display !== 'none') {
-                picker.style.display = 'block';
+                picker.removeAttribute('hidden');
             }
         });
         if (walletDisplay) {
@@ -129,7 +129,7 @@
                 return;
             }
 
-            payPanel.style.display = 'block';
+            payPanel.removeAttribute('hidden');
             addrEl.textContent  = '…';
             amountEl.textContent = 'fetching quote…';
             statusText.textContent = 'requesting quote…';
@@ -183,7 +183,7 @@
                 if (s.observed_amount_minor) {
                     const chain = chainField.value;
                     const f = formatChainAmount(chain, s.observed_amount_minor);
-                    observedEl.style.display = 'inline';
+                    observedEl.removeAttribute('hidden');
                     observedEl.textContent = ' observed ' + f.major + ' ' + f.symbol;
                 }
                 if (s.status === 'funded') {
@@ -197,7 +197,7 @@
         }
 
         function hidePayPanel() {
-            payPanel.style.display = 'none';
+            payPanel.setAttribute('hidden', '');
             if (pollHandle) { clearInterval(pollHandle); pollHandle = null; }
         }
 

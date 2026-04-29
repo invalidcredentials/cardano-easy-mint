@@ -62,20 +62,27 @@
     margin: 0 0 0 0;
 }
 
+.altpay-picker[hidden],
+.altpay-pay-panel[hidden],
+.altpay-observed[hidden] { display: none !important; }
+
 .altpay-pay-panel {
     margin-top: 14px;
     padding: 14px 16px;
-    background: #0d0c12;
+    background: #0d0c12 !important;
     border: 1px solid #2a2937;
     border-radius: 8px;
-    color: #fefefc;
+    color: #fefefc !important;
 }
+.altpay-pay-panel * { color: inherit; }
 
 .altpay-pay-instructions {
     margin: 0 0 10px 0;
-    color: #cfcdd6;
+    color: #cfcdd6 !important;
     font-size: 13px;
 }
+.altpay-pay-instructions strong { color: #fefefc !important; }
+.altpay-status-line { color: #cfcdd6 !important; font-size: 13px; }
 
 .altpay-amount-display {
     font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
@@ -115,43 +122,41 @@
     flex: 1 1 320px;
     word-break: break-all;
     padding: 9px 12px;
-    background: #06050a;
+    background: #06050a !important;
     border: 1px solid #2a2937;
     border-radius: 5px;
-    color: #fefefc;
+    color: #fefefc !important;
     font-size: 12px;
     font-family: ui-monospace, SFMono-Regular, monospace;
     user-select: all;
 }
 
-.altpay-pay-panel .button {
-    background: #24A4BD;
-    color: #0A090C;
-    border: 1px solid #24A4BD;
+.altpay-btn {
+    background: #24A4BD !important;
+    color: #0A090C !important;
+    border: 1px solid #24A4BD !important;
     border-radius: 5px;
     padding: 7px 14px;
     cursor: pointer;
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.02em;
+    line-height: 1;
     transition: background 0.15s ease, color 0.15s ease;
 }
-.altpay-pay-panel .button:hover { background: #1c8294; border-color: #1c8294; }
-.altpay-pay-panel .button[data-altpay-action="cancel"] {
-    background: transparent;
-    color: #cfcdd6;
-    border-color: #2f2e3c;
+.altpay-btn:hover { background: #1c8294 !important; border-color: #1c8294 !important; }
+
+.altpay-btn--ghost {
+    background: transparent !important;
+    color: #cfcdd6 !important;
+    border-color: #2f2e3c !important;
 }
-.altpay-pay-panel .button[data-altpay-action="cancel"]:hover {
-    border-color: #88838f;
-    color: #fefefc;
+.altpay-btn--ghost:hover {
+    border-color: #88838f !important;
+    color: #fefefc !important;
 }
 
-.altpay-status-line {
-    margin: 12px 0 0 0;
-    color: #cfcdd6;
-    font-size: 13px;
-}
+.altpay-status-line { margin-top: 12px; }
 .altpay-status-text {
     text-transform: capitalize;
     color: #fefefc;
