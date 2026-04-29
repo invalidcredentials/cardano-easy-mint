@@ -269,10 +269,16 @@
             const netAda   = parseFloat((($netAda   && $netAda.textContent  ) || '0.22')) || 0.22;
             const totalAda = SERVICE_FEE_ADA + anvilAda + netAda;
 
-            $usd.innerHTML = '<span style="color:#0a7d22;">Paid via ' + chain.toUpperCase() + ' &#10003;</span>';
-            $ada.innerHTML = '<span style="color:#0a7d22;">$0 due in ADA</span>';
-            $totUsd.innerHTML = '<span style="font-size:14px; color:#888;">' + chain.toUpperCase() + ' covered, plus</span>';
+            $usd.innerHTML = '<span style="color:#4ade80;">Paid via ' + chain.toUpperCase() + ' &#10003;</span>';
+            $ada.innerHTML = '<span style="color:#4ade80;">$0 due in ADA</span>';
+            $totUsd.innerHTML = '<span style="font-size:13px; color:#9b99a6;">' + chain.toUpperCase() + ' covered, plus</span>';
             $totAda.textContent = '~' + totalAda.toFixed(2) + ' ADA service';
+
+            // The "1.22 ADA UTxO note" copy is for the all-ADA flow; when we
+            // override the merchant output to the configured service fee the
+            // accompanying notes lose context. Hide them.
+            const utxoNote = document.querySelector('.receipt-info-text');
+            if (utxoNote) utxoNote.style.display = 'none';
 
             // Drop a small banner above the order summary if not already there.
             if (!document.getElementById('altpay-receipt-banner')) {
