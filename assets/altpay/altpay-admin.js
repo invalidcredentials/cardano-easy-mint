@@ -162,6 +162,34 @@
             });
     });
 
+    $(document).on('change', '[data-action="altpay-set-network"]', function () {
+        const $sel = $(this);
+        const id = $sel.data('wallet-id');
+        const newVal = $sel.val();
+        const oldVal = $sel.data('current');
+        if (newVal === oldVal) return;
+        // BTC mainnet uses coin_type 0 while testnet/signet share coin_type 1.
+        // Flipping BETWEEN mainnet and testnet/signet changes derived addresses.
+        // Flipping testnet <-> signet (or eth mainnet <-> sepolia) is safe.
+        const isBtcCoinTypeShift = (oldVal === 'mainnet' && (newVal === 'testnet' || newVal === 'signet'))
+                                || ((oldVal === 'testnet' || oldVal === 'signet') && newVal === 'mainnet');
+        const isEthCoinTypeShift = (oldVal === 'mainnet' && newVal === 'sepolia')
+                                || (oldVal === 'sepolia' && newVal === 'mainnet');
+        const warn = isBtcCoinTypeShift
+            ? 'Switching BTC mainnet <-> testnet/signet changes the derivation coin type, which means the previously-issued child addresses NO LONGER match what this wallet derives. Continue?'
+            : (isEthCoinTypeShift ? 'Switching ETH networks is safe (same keys/addresses) but live invoices may need a Rescan. Continue?' : null);
+        if (warn && !window.confirm(warn)) { $sel.val(oldVal); return; }
+        ajax('cardano_altpay_set_wallet_network', { wallet_id: id, network: newVal })
+            .then(function () {
+                $sel.data('current', newVal);
+                window.alert('Network set to ' + newVal + '. Existing pending invoices may need a Rescan from the Invoices tab.');
+            })
+            .catch(function (e) {
+                $sel.val(oldVal);
+                window.alert('Could not update network: ' + e.message);
+            });
+    });
+
     $(document).on('click', '[data-action="altpay-archive"]', function () {
         const id = $(this).data('wallet-id');
         if (!window.confirm('Archive this wallet? It will not appear in the dropdown for new invoices.')) return;
