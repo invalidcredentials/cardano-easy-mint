@@ -27,6 +27,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/controllers/RestApiController
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/WidgetAdminController.php';
 
 // Alt-chain payments (BTC/ETH/SOL) — Phase 2.
+require_once plugin_dir_path(__FILE__) . 'includes/altpay/lib/Bn.php';
 require_once plugin_dir_path(__FILE__) . 'includes/altpay/lib/Secp256k1.php';
 require_once plugin_dir_path(__FILE__) . 'includes/altpay/lib/Keccak.php';
 require_once plugin_dir_path(__FILE__) . 'includes/altpay/encoding/Bech32.php';
