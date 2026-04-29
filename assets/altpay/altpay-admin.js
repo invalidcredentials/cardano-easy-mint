@@ -194,6 +194,104 @@
             });
     });
 
+    // Async balance fill on the Dashboard cards. One AJAX per wallet.
+    function fillDashboardBalances() {
+        const slots = document.querySelectorAll('.kg-altpay-balance[data-dash-balance]');
+        slots.forEach(function (el) {
+            const id = el.getAttribute('data-dash-balance');
+            const card = el.closest('[data-dash-chain]');
+            const chain = card ? card.getAttribute('data-dash-chain') : '';
+            ajax('cardano_altpay_wallet_balances', { wallet_id: id })
+                .then(function (data) {
+                    const major = formatMajor(chain, data.total_minor || '0');
+                    el.innerHTML = '<strong>' + major + '</strong> ' + chain.toUpperCase()
+                        + ' <span style="color:#888; font-size:11px;">(' + Number(data.total_minor || 0).toLocaleString('en-US') + ' ' + chainMinorLabel(chain) + ')</span>';
+                })
+                .catch(function () { el.innerHTML = '<span style="color:#a00;">RPC failed</span>'; });
+        });
+    }
+    if (document.querySelector('.kg-altpay-dashboard')) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', fillDashboardBalances);
+        } else {
+            fillDashboardBalances();
+        }
+    }
+
+    function chainMinorLabel(c) {
+        return c === 'btc' ? 'sats' : c === 'eth' ? 'wei' : 'lamports';
+    }
+
+    function formatMajor(chain, minorStr) {
+        const decimals = { btc: 8, eth: 18, sol: 9 }[chain] || 0;
+        const display  = { btc: 8, eth: 6, sol: 4 }[chain] != null ? { btc: 8, eth: 6, sol: 4 }[chain] : decimals;
+        if (!minorStr || minorStr === '0') return '0';
+        try {
+            const big = BigInt(minorStr);
+            const base = BigInt(10) ** BigInt(decimals);
+            const whole = (big / base).toString();
+            const frac = (big % base).toString().padStart(decimals, '0').slice(0, display).replace(/0+$/, '');
+            return frac ? whole + '.' + frac : whole;
+        } catch (e) {
+            return (Number(minorStr) / Math.pow(10, decimals)).toFixed(display);
+        }
+    }
+
+    $(document).on('click', '[data-action="altpay-send-from-wallet"]', function () {
+        const $btn = $(this);
+        const walletId = $btn.data('wallet-id');
+        const chain    = String($btn.data('chain') || '').toLowerCase();
+        const minorLabel = chainMinorLabel(chain);
+        const sweepDefault = (cfg.sweepTargets && cfg.sweepTargets[chain]) || '';
+
+        $btn.prop('disabled', true).text('Checking balances…');
+        ajax('cardano_altpay_wallet_balances', { wallet_id: walletId })
+            .then(function (data) {
+                $btn.prop('disabled', false).text('Send funds');
+                const total = data.total_minor || '0';
+                if (total === '0') {
+                    window.alert('No funds available across the child addresses on this wallet yet.');
+                    return;
+                }
+                const totalMajor = formatMajor(chain, total);
+                const lines = ['Total balance across child addresses: ' + totalMajor + ' ' + chain.toUpperCase() + ' (' + Number(total).toLocaleString('en-US') + ' ' + minorLabel + ')\n'];
+                lines.push('Per-child:');
+                data.children.forEach(function (c) {
+                    if (c.balance_minor === '0') return;
+                    lines.push('  index ' + c.index + ': ' + formatMajor(chain, c.balance_minor) + ' ' + chain.toUpperCase() + '  (' + c.address.substring(0, 10) + '…' + c.address.substring(c.address.length - 6) + ')');
+                });
+                lines.push('\nThis sends from the most-funded single child address. Repeat to drain more children.');
+                window.alert(lines.join('\n'));
+
+                const dest = window.prompt('Send to (your external ' + chain.toUpperCase() + ' wallet address):', sweepDefault);
+                if (!dest) return;
+                const def = data.children[0] && data.children[0].balance_minor !== '0' ? data.children[0].balance_minor : '';
+                const amt = window.prompt('Amount in ' + minorLabel + ' (smallest unit). Top child holds ' + def + '.', def);
+                if (!amt) return;
+                const cleanAmt = String(amt).replace(/[^0-9]/g, '');
+                if (!cleanAmt || cleanAmt === '0') { window.alert('Amount must be a positive integer in ' + minorLabel + '.'); return; }
+
+                if (!window.confirm('Confirm withdrawal:\n\n  wallet: #' + walletId + ' (' + chain.toUpperCase() + ')\n  amount: ' + cleanAmt + ' ' + minorLabel + ' (' + formatMajor(chain, cleanAmt) + ' ' + chain.toUpperCase() + ')\n  to: ' + dest + '\n\nThis broadcasts a real transaction. Continue?')) return;
+
+                $btn.prop('disabled', true).text('Sending…');
+                ajax('cardano_altpay_send_from_wallet', {
+                    wallet_id: walletId,
+                    to_address: dest.trim(),
+                    amount_minor: cleanAmt,
+                }).then(function (r) {
+                    window.alert('Withdrawal broadcast.\n\nTx: ' + (r.tx_hash || '(no hash)') + '\nFrom child index: ' + r.source_index);
+                    window.location.reload();
+                }).catch(function (e) {
+                    window.alert('Withdrawal failed: ' + e.message);
+                    $btn.prop('disabled', false).text('Send funds');
+                });
+            })
+            .catch(function (e) {
+                $btn.prop('disabled', false).text('Send funds');
+                window.alert('Could not load balances: ' + e.message);
+            });
+    });
+
     $(document).on('click', '[data-action="altpay-refund"]', function () {
         const $btn = $(this);
         const id    = $btn.data('invoice-id');
