@@ -1329,22 +1329,6 @@ margin: 0 0 0 20px;
     color: #10b981 !important;
 }
 
-.receipt-info-text {
-    font-size: 0.8125rem;
-    color: #1f2937 !important;
-    line-height: 1.5;
-    margin: 12px 0 0 0;
-    padding: 12px;
-    background: #fef3c7;
-    border-left: 3px solid #f59e0b;
-    border-radius: 4px;
-}
-
-.receipt-info-text strong {
-    color: #0a090c !important;
-    font-weight: 700;
-}
-
 /* Total Section */
 .receipt-total {
     display: flex;
