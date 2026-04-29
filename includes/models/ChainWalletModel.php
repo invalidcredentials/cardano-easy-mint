@@ -84,6 +84,24 @@ class ChainWalletModel {
     }
 
     /**
+     * Move a wallet to a different network. Safe for BTC testnet <-> signet
+     * (shared HRP `tb` and shared coin_type 1) and for ETH mainnet <-> sepolia
+     * (BIP-32 secp256k1 paths are identical, addresses don't change).
+     * NOT safe across mainnet <-> testnet for BTC because mainnet uses coin
+     * type 0; the caller should warn the operator before flipping.
+     */
+    public static function set_network(int $walletId, string $network): bool {
+        global $wpdb;
+        return false !== $wpdb->update(
+            self::table(),
+            ['network' => sanitize_text_field($network)],
+            ['id'      => $walletId],
+            ['%s'],
+            ['%d']
+        );
+    }
+
+    /**
      * Allocate the next derivation index for a parent wallet and bump the
      * counter atomically. Uses an UPDATE … WHERE next_index = expected loop
      * to avoid a race when two quotes land at the same instant.

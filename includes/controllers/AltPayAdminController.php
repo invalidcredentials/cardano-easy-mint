@@ -30,6 +30,7 @@ class AltPayAdminController {
         add_action('wp_ajax_cardano_altpay_generate_wallet',  [self::class, 'ajaxGenerateWallet']);
         add_action('wp_ajax_cardano_altpay_import_wallet',    [self::class, 'ajaxImportWallet']);
         add_action('wp_ajax_cardano_altpay_archive_wallet',   [self::class, 'ajaxArchiveWallet']);
+        add_action('wp_ajax_cardano_altpay_set_wallet_network',[self::class, 'ajaxSetWalletNetwork']);
         add_action('wp_ajax_cardano_altpay_rescan_invoice',   [self::class, 'ajaxRescanInvoice']);
         add_action('wp_ajax_cardano_altpay_refund_invoice',   [self::class, 'ajaxRefundInvoice']);
         add_action('wp_ajax_cardano_altpay_send_from_wallet', [self::class, 'ajaxSendFromWallet']);
@@ -169,6 +170,19 @@ class AltPayAdminController {
         $ok = ChainWalletModel::set_archived($id, $on);
         if (!$ok) wp_send_json_error(['message' => 'update failed']);
         wp_send_json_success(['id' => $id, 'archived' => $on]);
+    }
+
+    public static function ajaxSetWalletNetwork(): void {
+        check_ajax_referer(self::NONCE, 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'forbidden']);
+        $id = (int) ($_POST['wallet_id'] ?? 0);
+        $network = sanitize_text_field($_POST['network'] ?? '');
+        $wallet = ChainWalletModel::get($id);
+        if (!$wallet) wp_send_json_error(['message' => 'wallet not found']);
+        $allowed = self::chainNetworks($wallet['chain']);
+        if (!in_array($network, $allowed, true)) wp_send_json_error(['message' => 'unsupported network for this chain']);
+        if (!ChainWalletModel::set_network($id, $network)) wp_send_json_error(['message' => 'update failed']);
+        wp_send_json_success(['id' => $id, 'network' => $network]);
     }
 
     public static function ajaxRescanInvoice(): void {

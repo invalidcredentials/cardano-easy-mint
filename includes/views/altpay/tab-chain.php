@@ -116,7 +116,16 @@ $expected_for_1usd = AltPayService::provider($chain)?->expectedAmountMinor(1.0, 
                 ?>
                 <tr data-wallet-id="<?php echo esc_attr($w['id']); ?>">
                     <td><strong><?php echo esc_html($w['name']); ?></strong></td>
-                    <td><code><?php echo esc_html($w['network']); ?></code></td>
+                    <td>
+                        <select data-action="altpay-set-network"
+                                data-wallet-id="<?php echo esc_attr($w['id']); ?>"
+                                data-current="<?php echo esc_attr($w['network']); ?>"
+                                style="font-family: ui-monospace, monospace; font-size: 12px;">
+                            <?php foreach ($networks as $n): ?>
+                                <option value="<?php echo esc_attr($n); ?>"<?php selected($w['network'], $n); ?>><?php echo esc_html($n); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </td>
                     <td>
                         <?php
                         // We do not store address0 explicitly in the row — it is derivable.
