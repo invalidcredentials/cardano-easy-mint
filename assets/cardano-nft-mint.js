@@ -507,6 +507,88 @@
             }
         }
 
+    // Quantity stepper: tracks how many NFTs the customer wants in this tx
+    // (1-5 cap; per-wallet limit is enforced separately on the server). The
+    // line items in Step 2 are pre-rendered with per-unit values stored on
+    // data-unit-usd / data-unit-ada attributes; this function multiplies them
+    // by the current qty and rewrites the visible numbers + the running total.
+    function recomputeReviewTotals() {
+        const qtyInput = document.getElementById('qty-input');
+        if (!qtyInput) return;
+        const qty = Math.max(1, Math.min(5, parseInt(qtyInput.value, 10) || 1));
+        qtyInput.value = qty;
+
+        const fmtUsd = function (n) { return '$' + n.toFixed(2) + ' USD'; };
+        const fmtAda = function (n, p) { return n.toFixed(p) + ' ADA'; };
+
+        const ids = [
+            { usd: 'review-nft-price-usd', ada: 'review-nft-price-ada', adaPrec: 4 },
+            { usd: 'review-anvil-usd',     ada: 'review-anvil-ada',     adaPrec: 2 },
+            // Network fee scales slightly per asset but Anvil estimates the
+            // real value at build time. Keep the displayed estimate flat —
+            // a small under/over here is normal and the customer sees the
+            // exact fee in their wallet before signing.
+        ];
+        let totalUsd = 0, totalAda = 0;
+        ids.forEach(function (row) {
+            const usdEl = document.getElementById(row.usd);
+            const adaEl = document.getElementById(row.ada);
+            if (!usdEl || !adaEl) return;
+            const unitUsd = parseFloat(usdEl.dataset.unitUsd) || 0;
+            const unitAda = parseFloat(adaEl.dataset.unitAda || usdEl.dataset.unitAda) || 0;
+            const u = unitUsd * qty;
+            const a = unitAda * qty;
+            usdEl.textContent = fmtUsd(u);
+            adaEl.textContent = fmtAda(a, row.adaPrec);
+            totalUsd += u;
+            totalAda += a;
+        });
+        // Network fee is one-tx flat (Anvil-estimated, not multiplied).
+        const netUsdEl = document.getElementById('review-network-usd');
+        const netAdaEl = document.getElementById('review-network-ada');
+        if (netUsdEl && netAdaEl) {
+            const netUsd = parseFloat(netUsdEl.dataset.unitUsd) || 0;
+            const netAda = parseFloat(netAdaEl.dataset.unitAda) || 0;
+            netUsdEl.textContent = '~' + fmtUsd(netUsd);
+            netAdaEl.textContent = '~' + fmtAda(netAda, 2);
+            totalUsd += netUsd;
+            totalAda += netAda;
+        }
+
+        const totUsdEl = document.getElementById('review-total-usd');
+        const totAdaEl = document.getElementById('review-total-ada');
+        if (totUsdEl) totUsdEl.textContent = fmtUsd(totalUsd);
+        if (totAdaEl) totAdaEl.textContent = fmtAda(totalAda, 2);
+
+        // NFT line label reflects qty so the customer sees what they're paying for.
+        const lineLabel = document.getElementById('review-nft-price-label');
+        if (lineLabel) lineLabel.textContent = qty > 1 ? ('NFT Mint Price × ' + qty) : 'NFT Mint Price';
+    }
+
+    function setupQuantityStepper() {
+        const dec = document.getElementById('qty-dec');
+        const inc = document.getElementById('qty-inc');
+        const inp = document.getElementById('qty-input');
+        if (!dec || !inc || !inp || dec.dataset.bound) return;
+        dec.dataset.bound = '1';
+        const setQty = function (n) {
+            inp.value = Math.max(1, Math.min(5, n));
+            recomputeReviewTotals();
+        };
+        dec.addEventListener('click', function () { setQty(parseInt(inp.value, 10) - 1); });
+        inc.addEventListener('click', function () { setQty(parseInt(inp.value, 10) + 1); });
+
+        // Alt-pay invoices lock the price at quote time and v1 only supports
+        // qty=1 there; hide the stepper if the alt-pay flow has set an invoice.
+        const altpayInvoice = document.getElementById('altpay-invoice-id');
+        const row = document.getElementById('receipt-quantity-row');
+        const hint = document.getElementById('quantity-hint');
+        if (altpayInvoice && altpayInvoice.value && row) {
+            row.style.display = 'none';
+            if (hint) hint.style.display = 'none';
+        }
+    }
+
     // Initialize when DOM is loaded
     document.addEventListener('DOMContentLoaded', function() {
         console.log('MINT NOW script loaded and DOM ready');
@@ -514,6 +596,7 @@
         const testBtn = document.getElementById('cardano-mint-now-btn');
         console.log('Button found at DOM ready:', testBtn);
         initializeNFTMint();
+        setupQuantityStepper();
     });
 
     // Re-initialize when Bricks finishes rendering
@@ -620,10 +703,18 @@
         if (stepElement) {
             stepElement.style.display = 'block';
         }
-        
+
         const stepIndicator = document.querySelector('.mint-steps .step[data-step="' + step + '"]');
         if (stepIndicator) {
             stepIndicator.classList.add('active');
+        }
+
+        // Wire up the qty stepper now that Step 2 is in the DOM (Bricks may
+        // have replaced it after our DOMContentLoaded hook ran). Idempotent
+        // via dataset.bound flag inside setupQuantityStepper.
+        if (step === 2) {
+            setupQuantityStepper();
+            recomputeReviewTotals();
         }
     }
 
@@ -943,11 +1034,14 @@
                     // Step 1: Build mint transaction
                     console.log('Building mint transaction...');
                     console.log('Calling buildMintTransaction with price:', mintPrice);
+                    const qtyInputEl = document.getElementById('qty-input');
+                    const mintQty    = qtyInputEl ? parseInt(qtyInputEl.value, 10) || 1 : 1;
                     const buildData = await buildMintTransaction(
                         merchantAddress,
                         mintWallet.changeAddress,
                         mintPrice,
-                        policyId
+                        policyId,
+                        mintQty
                     );
                     
                     if (!buildData.complete) {
@@ -999,7 +1093,8 @@
                             buildData.complete,
                             signatures,
                             policyId,
-                            mintWallet.changeAddress
+                            mintWallet.changeAddress,
+                            mintQty
                         );
                         
                         if (!submitResult.txHash) {
@@ -1064,7 +1159,7 @@
     }
 
     // Build mint transaction
-    async function buildMintTransaction(merchantAddress, customerAddress, usdPrice, policyId) {
+    async function buildMintTransaction(merchantAddress, customerAddress, usdPrice, policyId, quantity) {
         if (!window.cardanoMint) {
             throw new Error('Cardano Mint configuration not found');
         }
@@ -1109,6 +1204,7 @@
         formData.append('usd_price', usdPrice);
         formData.append('policy_id', policyId);
         formData.append('asset_id', assetId);
+        formData.append('quantity', String(Math.max(1, Math.min(5, parseInt(quantity, 10) || 1))));
 
         // Alt-pay: when the customer paid on a non-Cardano chain, the funded
         // invoice_id sits in a hidden input dropped by altpay-checkout.js. The
@@ -1149,7 +1245,7 @@
     }
 
     // Submit mint transaction
-    async function submitMintTransaction(transaction, signatures, policyId, walletAddress) {
+    async function submitMintTransaction(transaction, signatures, policyId, walletAddress, quantity) {
         if (!window.cardanoMint) {
             throw new Error('Cardano Mint configuration not found');
         }
@@ -1166,6 +1262,7 @@
         formData.append('policy_id', policyId);
         formData.append('wallet_address', walletAddress);
         formData.append('asset_id', assetId);
+        formData.append('quantity', String(Math.max(1, Math.min(5, parseInt(quantity, 10) || 1))));
 
         const altpayInvoiceFieldSubmit = document.getElementById('altpay-invoice-id');
         if (altpayInvoiceFieldSubmit && altpayInvoiceFieldSubmit.value) {

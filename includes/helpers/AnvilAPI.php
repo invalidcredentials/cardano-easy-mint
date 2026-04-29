@@ -106,7 +106,8 @@ class AnvilAPI {
     /**
      * Build transaction for NFT minting with CIP-25 metadata
      */
-    public static function buildMintTransaction($merchant_address, $customer_address, $usd_price, $policy_id, $plugin_type = 'mint', $mint_data = null) {
+    public static function buildMintTransaction($merchant_address, $customer_address, $usd_price, $policy_id, $plugin_type = 'mint', $mint_data = null, $quantity = 1) {
+        $quantity = max(1, min(5, intval($quantity)));
         error_log("buildMintTransaction called with:");
         error_log("merchant_address: " . $merchant_address);
         error_log("customer_address: " . $customer_address);
@@ -138,31 +139,47 @@ class AnvilAPI {
         $ada_amount = $usd_price / $ada_price;
         error_log("ADA amount: " . $ada_amount);
 
-        // Fee calculation for Cardano Mint - includes additional 1 ADA minting fee
-        $minting_fee = 1.0; // Additional 1 ADA fee for minting
-        $total_ada_amount = $ada_amount + $minting_fee;
-        error_log("Minting fee: " . $minting_fee);
-        error_log("Total ADA amount (including minting fee): " . $total_ada_amount);
+        // Fee calculation for Cardano Mint - includes additional 1 ADA minting fee per asset
+        $minting_fee = 1.0; // Additional 1 ADA fee per minted NFT
+        $per_asset_ada = $ada_amount + $minting_fee;
+        $total_ada_amount = $per_asset_ada * $quantity;
+        error_log("Minting fee: " . $minting_fee . " ADA per asset");
+        error_log("Quantity: " . $quantity);
+        error_log("Total ADA amount (price + minting fee, x qty): " . $total_ada_amount);
 
         // Alt-paid override: when the customer paid for the NFT on a different
         // chain, this Cardano tx only carries the configured ADA service fee
-        // to merchant + the 1 ADA receipt to customer + the minted asset.
-        // Honored when callers set `_altpay_service_fee_ada_override` on
-        // $mint_data; the override is the FULL merchant lovelace amount.
+        // to merchant + receipts to customer + the minted assets. Honored when
+        // callers set `_altpay_service_fee_ada_override` on $mint_data. The
+        // override is the per-asset service fee; we still multiply by qty so
+        // a batch buy pays N service fees (per pb 2026-04-29).
         $altpay_override_used = false;
         if (is_array($mint_data) && !empty($mint_data['_altpay_service_fee_ada_override'])) {
             $altpay_override_used = true;
-            $total_ada_amount = (float) $mint_data['_altpay_service_fee_ada_override'];
-            error_log("[AltPay] merchant output overridden to " . $total_ada_amount . " ADA (alt-chain payment)");
+            $total_ada_amount = ((float) $mint_data['_altpay_service_fee_ada_override']) * $quantity;
+            error_log("[AltPay] merchant output overridden to " . $total_ada_amount . " ADA (alt-chain payment, qty " . $quantity . ")");
         }
 
-        $receipt_amount = 1.0; // 1 ADA receipt back to customer
+        // 1 ADA receipt per minted NFT — Cardano min-ADA scales with the
+        // number of native tokens in the UTxO; Anvil bumps this if needed.
+        $receipt_amount = 1.0 * $quantity;
         error_log("Receipt amount: " . $receipt_amount);
 
-        // Generate unique asset name for this mint
-        // Anvil API will handle encoding when we specify format: "utf8"
-        $asset_name_raw = 'NFT_' . time() . '_' . substr(md5($customer_address . $policy_id), 0, 8);
-        error_log("Asset name: " . $asset_name_raw);
+        // Generate unique asset name(s) for this mint. For qty>1 we suffix
+        // _001 / _002 / ... so each NFT in the batch has a distinct on-chain
+        // asset id. The base prefix is shared per-tx (timestamp + customer/policy
+        // hash) so wallets can group them visually as one batch.
+        $asset_name_base = 'NFT_' . time() . '_' . substr(md5($customer_address . $policy_id), 0, 8);
+        $asset_names = array();
+        for ($i = 1; $i <= $quantity; $i++) {
+            $asset_names[] = $quantity > 1
+                ? $asset_name_base . '_' . str_pad((string) $i, 3, '0', STR_PAD_LEFT)
+                : $asset_name_base;
+        }
+        // Keep $asset_name_raw set to the first name for any downstream code
+        // that still references the single-asset shape (metadata defaults etc).
+        $asset_name_raw = $asset_names[0];
+        error_log("Asset names ({$quantity}): " . implode(', ', $asset_names));
 
         // Get mint-specific metadata if available
         $nft_name = $asset_name_raw;
@@ -365,31 +382,41 @@ class AnvilAPI {
         error_log("should_mint_royalty_token: " . (($is_first_mint && $royalty_rate > 0 && !empty($royalty_address)) ? 'YES' : 'NO'));
         error_log("======================================");
 
-        // Build assets array for customer output
-        $customer_assets = array(
-            array(
+        // Build N customer-output asset entries + N CIP-25 mint entries (one
+        // per NFT in this batch). Each gets a unique asset name; metadata
+        // tagged with #N/qty so wallets show "Shield #001 of 5", etc.
+        $customer_assets = array();
+        $mint_array = array();
+        foreach ($asset_names as $idx => $aname) {
+            $customer_assets[] = array(
                 'policyId' => $policy_id,
                 'assetName' => array(
-                    'name' => $asset_name_raw,
+                    'name' => $aname,
                     'format' => 'utf8'
                 ),
                 'quantity' => 1
-            )
-        );
+            );
 
-        // Build mint array starting with main NFT
-        $mint_array = array(
-            array(
+            // Per-asset metadata: clone the base CIP-25 blob and, for batches,
+            // append a sequential identifier so each minted NFT renders with
+            // its own name in wallets even when the underlying art is shared.
+            $asset_meta = $cip25_metadata;
+            if ($quantity > 1) {
+                $asset_meta['name'] = (isset($cip25_metadata['name']) ? $cip25_metadata['name'] : $nft_name)
+                    . ' #' . str_pad((string) ($idx + 1), 3, '0', STR_PAD_LEFT);
+            }
+
+            $mint_array[] = array(
                 'version' => 'cip25',  // CRITICAL: tells Anvil to generate 721 metadata
                 'policyId' => $policy_id,
                 'quantity' => 1,
                 'assetName' => array(
-                    'name' => $asset_name_raw,
+                    'name' => $aname,
                     'format' => 'utf8'
                 ),
-                'metadata' => $cip25_metadata
-            )
-        );
+                'metadata' => $asset_meta
+            );
+        }
 
         // Add CIP-27 royalty token if this is the first mint and royalty is configured
         if ($is_first_mint && $royalty_rate > 0 && !empty($royalty_address)) {
