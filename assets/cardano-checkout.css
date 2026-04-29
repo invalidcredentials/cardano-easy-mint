@@ -520,6 +520,19 @@ font-size:14px;
     opacity: 0.85;
 }
 
+.wallet-disconnect-link {
+    display: inline-block;
+    margin: 10px auto 0 auto;
+    background: transparent;
+    border: none;
+    padding: 4px 8px;
+    color: #9b99a6;
+    font-size: 0.85em;
+    text-decoration: underline;
+    cursor: pointer;
+}
+.wallet-disconnect-link:hover { color: #f87171; }
+
 .btn-connect-wallet {
     width: 75%;
     margin: 0 auto;
