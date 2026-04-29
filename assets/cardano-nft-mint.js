@@ -1015,8 +1015,19 @@
                     }
                     
                 } catch (error) {
-                    console.error('Mint failed:', error);
-                    alert('Mint failed: ' + error.message);
+                    console.error('Mint failed (full error):', error);
+                    var msg;
+                    if (error && typeof error === 'object') {
+                        msg = error.message || error.code || (error.toString && error.toString());
+                        if (error.info) msg = (msg ? msg + ' — ' : '') + JSON.stringify(error.info);
+                        if (error.data && error.data.message) msg = error.data.message;
+                    } else if (typeof error === 'string') {
+                        msg = error;
+                    }
+                    if (!msg || msg === '[object Object]') {
+                        msg = 'unknown error — open the browser console for details';
+                    }
+                    alert('Mint failed: ' + msg);
                 } finally {
                     if (confirmBtn) {
                         confirmBtn.textContent = 'CONFIRM MINT';
