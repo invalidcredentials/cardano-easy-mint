@@ -169,19 +169,24 @@ class MintModel {
         global $wpdb;
         $table = self::get_active_mints_table();
 
+        // Append columns at the end — no AFTER clause — so the migration
+        // works regardless of which prior columns exist on a given install.
         $col1 = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'preview_image_id'");
         if (empty($col1)) {
-            $wpdb->query("ALTER TABLE $table ADD COLUMN preview_image_id int(11) unsigned DEFAULT NULL AFTER collection_image_id");
+            $r = $wpdb->query("ALTER TABLE $table ADD COLUMN preview_image_id int(11) unsigned DEFAULT NULL");
+            if ($r === false) error_log('[CardanoMint] add preview_image_id FAILED: ' . $wpdb->last_error);
         }
 
         $col2 = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'preview_ipfs_cid_manual'");
         if (empty($col2)) {
-            $wpdb->query("ALTER TABLE $table ADD COLUMN preview_ipfs_cid_manual varchar(60) DEFAULT NULL AFTER preview_image_id");
+            $r = $wpdb->query("ALTER TABLE $table ADD COLUMN preview_ipfs_cid_manual varchar(60) DEFAULT NULL");
+            if ($r === false) error_log('[CardanoMint] add preview_ipfs_cid_manual FAILED: ' . $wpdb->last_error);
         }
 
         $col3 = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'preview_media_type'");
         if (empty($col3)) {
-            $wpdb->query("ALTER TABLE $table ADD COLUMN preview_media_type varchar(50) DEFAULT NULL AFTER preview_ipfs_cid_manual");
+            $r = $wpdb->query("ALTER TABLE $table ADD COLUMN preview_media_type varchar(50) DEFAULT NULL");
+            if ($r === false) error_log('[CardanoMint] add preview_media_type FAILED: ' . $wpdb->last_error);
         }
     }
 
@@ -294,6 +299,12 @@ class MintModel {
         global $wpdb;
         $table = self::get_active_mints_table();
 
+        // Just-in-time migration safety net: if any of the newer columns
+        // are missing on this install (e.g. plugin updated but admin_init
+        // hasn't fired yet), add them before we try to write to them.
+        // Idempotent — checks existence before each ALTER.
+        self::add_preview_image_columns();
+
         $insertData = [
             'collection_id' => isset($mintData['collection_id']) ? intval($mintData['collection_id']) : null,
             'variant' => isset($mintData['variant']) ? $mintData['variant'] : null,
@@ -320,7 +331,11 @@ class MintModel {
             'status' => $mintData['status']
         ];
 
-        $wpdb->insert($table, $insertData);
+        $insert_result = $wpdb->insert($table, $insertData);
+        if ($insert_result === false) {
+            error_log('[CardanoMint] insert_active_mint FAILED. last_error=' . $wpdb->last_error);
+            error_log('[CardanoMint] insert payload keys=' . implode(',', array_keys($insertData)));
+        }
         $insertId = $wpdb->insert_id;
 
         // If this is a new collection (no collection_id provided), set collection_id to its own id
@@ -335,6 +350,9 @@ class MintModel {
     public static function update_active_mint($id, $mint) {
         global $wpdb;
         $table = self::get_active_mints_table();
+
+        // Just-in-time column safety net (see note in insert_active_mint).
+        self::add_preview_image_columns();
 
         $updateData = [
             'title' => $mint['title'],
@@ -364,6 +382,10 @@ class MintModel {
 
         // Update the specific asset
         $result = $wpdb->update($table, $updateData, ['id' => $id]);
+        if ($result === false) {
+            error_log('[CardanoMint] update_active_mint FAILED. id=' . $id . ' last_error=' . $wpdb->last_error);
+            error_log('[CardanoMint] update payload keys=' . implode(',', array_keys($updateData)));
+        }
 
         // If this is variant A, cascade policy-level changes to all other variants
         $currentAsset = self::getMintById($id);
