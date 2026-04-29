@@ -139,18 +139,36 @@ $nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
                         </p>
 
                         <div class="altpay-pay-panel" id="altpay-pay-panel" hidden>
-                            <p class="altpay-pay-instructions">
-                                Send <strong><span class="altpay-amount-display">—</span></strong> to the address below. We watch the chain and unlock the next step automatically.
-                            </p>
-                            <div class="altpay-address-row">
-                                <code class="altpay-address">—</code>
-                                <button type="button" class="altpay-btn" data-altpay-action="copy-address">Copy</button>
-                                <button type="button" class="altpay-btn altpay-btn--ghost" data-altpay-action="cancel">Cancel</button>
+
+                            <!-- Pre-init: chain selected but no payment session yet -->
+                            <div class="altpay-preinit" data-altpay-state="preinit">
+                                <p class="altpay-pay-instructions">
+                                    Pay this mint with <strong class="altpay-chain-label">BTC</strong>. We'll generate a fresh deposit address tied to your Cardano wallet and watch the chain for your payment. The session stays resumable for 24 hours, even if you close this modal.
+                                </p>
+                                <div class="altpay-pay-actions">
+                                    <button type="button" class="altpay-btn altpay-btn--primary" data-altpay-action="start">Pay with <span class="altpay-chain-label">BTC</span></button>
+                                    <button type="button" class="altpay-btn altpay-btn--ghost" data-altpay-action="back">Use ADA instead</button>
+                                </div>
                             </div>
-                            <p class="altpay-status-line">
-                                Status: <strong class="altpay-status-text">waiting…</strong>
-                                <span class="altpay-observed" hidden></span>
-                            </p>
+
+                            <!-- Active: session live, polling /altpay/status -->
+                            <div class="altpay-active" data-altpay-state="active" hidden>
+                                <p class="altpay-pay-instructions">
+                                    Send <strong><span class="altpay-amount-display">—</span></strong> to the address below. We watch the chain and unlock the next step automatically.
+                                </p>
+                                <div class="altpay-address-row">
+                                    <code class="altpay-address">—</code>
+                                    <button type="button" class="altpay-btn" data-altpay-action="copy-address">Copy</button>
+                                </div>
+                                <p class="altpay-status-line">
+                                    Status: <strong class="altpay-status-text">waiting…</strong>
+                                    <span class="altpay-observed" hidden></span>
+                                </p>
+                                <p class="altpay-cancel-row">
+                                    <button type="button" class="altpay-cancel-link" data-altpay-action="cancel">Cancel payment session</button>
+                                </p>
+                            </div>
+
                         </div>
                     </div>
                     <input type="hidden" id="altpay-invoice-id" value="">
