@@ -544,7 +544,8 @@ function cardanomint_mint_manager_page() {
             'quantity_total' => isset($_POST['cardanonftquantity']) ? intval($_POST['cardanonftquantity']) : 1,
             'status' => 'Active',
             'ipfs_cid' => isset($_POST['ipfs_cid']) ? sanitize_text_field($_POST['ipfs_cid']) : null,  // From Pinata pin button
-            'ipfs_cid_manual' => isset($_POST['ipfs_cid_manual']) ? sanitize_text_field($_POST['ipfs_cid_manual']) : null  // From manual paste input
+            'ipfs_cid_manual' => isset($_POST['ipfs_cid_manual']) ? sanitize_text_field($_POST['ipfs_cid_manual']) : null,  // From manual paste input
+            'media_type' => isset($_POST['media_type']) ? sanitize_text_field($_POST['media_type']) : null  // Format selector (used when ipfs_cid_manual is set)
         ];
 
         // Handle variant and collection_id based on mode

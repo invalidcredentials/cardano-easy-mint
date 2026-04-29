@@ -188,6 +188,16 @@ class MintModel {
             $r = $wpdb->query("ALTER TABLE $table ADD COLUMN preview_media_type varchar(50) DEFAULT NULL");
             if ($r === false) error_log('[CardanoMint] add preview_media_type FAILED: ' . $wpdb->last_error);
         }
+
+        // Asset mime override — same idea as preview_media_type, but for
+        // the NFT image when supplied via a manual IPFS CID. WP attachments
+        // continue to auto-detect via get_post_mime_type(), but a pasted
+        // CID has no inherent mime, so the operator selects it.
+        $col4 = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'media_type'");
+        if (empty($col4)) {
+            $r = $wpdb->query("ALTER TABLE $table ADD COLUMN media_type varchar(50) DEFAULT NULL");
+            if ($r === false) error_log('[CardanoMint] add media_type FAILED: ' . $wpdb->last_error);
+        }
     }
 
     /**
@@ -320,6 +330,7 @@ class MintModel {
             'image_id' => isset($mintData['image_id']) ? intval($mintData['image_id']) : null,
             'ipfs_cid' => isset($mintData['ipfs_cid']) ? $mintData['ipfs_cid'] : null,
             'ipfs_cid_manual' => isset($mintData['ipfs_cid_manual']) ? $mintData['ipfs_cid_manual'] : null,
+            'media_type' => isset($mintData['media_type']) ? $mintData['media_type'] : null,
             'collection_image_id' => isset($mintData['collection_image_id']) ? intval($mintData['collection_image_id']) : null,
             'preview_image_id' => isset($mintData['preview_image_id']) ? intval($mintData['preview_image_id']) : null,
             'preview_ipfs_cid_manual' => isset($mintData['preview_ipfs_cid_manual']) ? $mintData['preview_ipfs_cid_manual'] : null,
@@ -367,6 +378,7 @@ class MintModel {
             'image_id' => isset($mint['image_id']) ? intval($mint['image_id']) : null,
             'ipfs_cid' => isset($mint['ipfs_cid']) ? $mint['ipfs_cid'] : null,
             'ipfs_cid_manual' => isset($mint['ipfs_cid_manual']) ? $mint['ipfs_cid_manual'] : null,
+            'media_type' => isset($mint['media_type']) ? $mint['media_type'] : null,
             'collection_image_id' => isset($mint['collection_image_id']) ? intval($mint['collection_image_id']) : null,
             'preview_image_id' => isset($mint['preview_image_id']) ? intval($mint['preview_image_id']) : null,
             'preview_ipfs_cid_manual' => isset($mint['preview_ipfs_cid_manual']) ? $mint['preview_ipfs_cid_manual'] : null,

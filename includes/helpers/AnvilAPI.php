@@ -182,9 +182,15 @@ class AnvilAPI {
                 }
             }
 
-            // Resolve mediaType from the underlying WP attachment when available.
-            // Videos are served from the WP CDN, so the attachment MIME is the source of truth.
-            if (isset($mint_data['image_id']) && $mint_data['image_id']) {
+            // Resolve mediaType. Priority:
+            //   1. Operator-selected `media_type` saved on the mint row.
+            //      This is the only reliable source when the asset comes
+            //      from a pasted IPFS CID (no inherent mime to detect).
+            //   2. WP attachment mime via get_post_mime_type() — works for
+            //      uploaded files where WP knows the type.
+            if (!empty($mint_data['media_type'])) {
+                $nft_media_type = (string) $mint_data['media_type'];
+            } elseif (isset($mint_data['image_id']) && $mint_data['image_id']) {
                 $attachment_mime = get_post_mime_type($mint_data['image_id']);
                 if ($attachment_mime) {
                     $nft_media_type = $attachment_mime;

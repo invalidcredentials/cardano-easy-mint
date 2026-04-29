@@ -164,6 +164,22 @@ if ($editMode && $editData) {
                                size="60"
                                maxlength="60"
                                style="padding: 8px; font-family: monospace; font-size: 13px; width: auto;" />
+                        <label style="margin-left: 12px; font-size: 12px; color: #374151;">
+                            Format:
+                            <?php $mt = $editMode && $editData ? ($editData['media_type'] ?? '') : ''; ?>
+                            <select name="media_type" id="media_type" style="padding: 6px; font-size: 13px;">
+                                <option value="image/png"     <?php selected($mt, 'image/png'); ?>>PNG</option>
+                                <option value="image/gif"     <?php selected($mt, 'image/gif'); ?>>GIF</option>
+                                <option value="image/jpeg"    <?php selected($mt, 'image/jpeg'); ?>>JPEG</option>
+                                <option value="image/webp"    <?php selected($mt, 'image/webp'); ?>>WebP</option>
+                                <option value="image/svg+xml" <?php selected($mt, 'image/svg+xml'); ?>>SVG</option>
+                                <option value="video/mp4"     <?php selected($mt, 'video/mp4'); ?>>MP4</option>
+                                <option value="video/webm"    <?php selected($mt, 'video/webm'); ?>>WebM</option>
+                                <option value="video/quicktime" <?php selected($mt, 'video/quicktime'); ?>>MOV</option>
+                                <option value="audio/mpeg"    <?php selected($mt, 'audio/mpeg'); ?>>MP3</option>
+                                <option value="audio/wav"     <?php selected($mt, 'audio/wav'); ?>>WAV</option>
+                            </select>
+                        </label>
                         <p id="ipfs-validation-message" style="margin-top: 8px; margin-bottom: 8px; font-size: 12px; display: none;"></p>
                         <div id="ipfs-manual-preview" style="margin-top: 10px; display: none;">
                             <img id="ipfs-manual-preview-img" src="" style="max-width: 150px; max-height: 150px; border-radius: 4px; border: 2px solid #7c3aed;" />
