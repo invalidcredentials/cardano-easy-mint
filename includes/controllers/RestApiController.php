@@ -216,6 +216,21 @@ class RestApiController {
             return new \WP_REST_Response( array( 'error' => 'collection_id and customer_address are required.' ), 400 );
         }
 
+        // Network gate: see ajaxBuildMintTransaction for rationale. Mismatched
+        // networks orphan alt-pay invoices and produce txs the wallet cannot sign.
+        $site_anvil_url = strtolower( (string) get_option( 'cardano_mint_anvil_api_url', '' ) );
+        $site_is_mainnet = ( strpos( $site_anvil_url, 'preprod' ) === false && strpos( $site_anvil_url, 'preview' ) === false && strpos( $site_anvil_url, 'sancho' ) === false );
+        $addr_is_testnet = ( stripos( $customer_address, 'addr_test1' ) === 0 );
+        if ( $site_is_mainnet === $addr_is_testnet ) {
+            return new \WP_REST_Response( array(
+                'error' => 'Wallet network mismatch: your wallet is on '
+                    . ( $addr_is_testnet ? 'Testnet' : 'Mainnet' )
+                    . ' but this site is on '
+                    . ( $site_is_mainnet ? 'Mainnet' : 'Pre-production' )
+                    . '. Switch your wallet network and reconnect.'
+            ), 400 );
+        }
+
         // Alt-paid path: validate the invoice is funded and bound to this
         // customer / mint before we spend the policy wallet's signature on
         // the cheaper service-fee transaction.

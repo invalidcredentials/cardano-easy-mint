@@ -55,6 +55,24 @@ class AltPayService {
         if ($mintId <= 0) return new \WP_Error('altpay_bad_mint', 'Missing mint id');
         if ($customerCardanoAddress === '') return new \WP_Error('altpay_bad_address', 'Missing Cardano address');
 
+        // Network gate: refuse to create an invoice bound to a Cardano address
+        // that's on the wrong network. Otherwise the customer's off-chain
+        // payment lands fine but the eventual mint tx can never be signed by
+        // a wallet on the right network, and the funds are stranded.
+        $site_anvil_url = strtolower((string) get_option('cardano_mint_anvil_api_url', ''));
+        $site_is_mainnet = (strpos($site_anvil_url, 'preprod') === false && strpos($site_anvil_url, 'preview') === false && strpos($site_anvil_url, 'sancho') === false);
+        $addr_is_testnet = (stripos($customerCardanoAddress, 'addr_test1') === 0);
+        if ($site_is_mainnet === $addr_is_testnet) {
+            $expected = $site_is_mainnet ? 'Mainnet' : 'Pre-production';
+            $actual   = $addr_is_testnet ? 'Testnet'  : 'Mainnet';
+            return new \WP_Error(
+                'altpay_network_mismatch',
+                'Wallet network mismatch: your wallet is on ' . $actual
+                . ' but this site is on ' . $expected
+                . '. Switch your wallet network and reconnect before paying.'
+            );
+        }
+
         $mint = MintModel::getMintById($mintId);
         if (!$mint) return new \WP_Error('altpay_mint_not_found', 'Mint not found');
 

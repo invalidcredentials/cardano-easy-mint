@@ -149,6 +149,34 @@
                 } catch (e) { return null; }
             }
 
+            // Maps the site's configured network to the CIP-30 networkId
+            // value the wallet returns. 1 = mainnet, 0 = any testnet.
+            function expectedCardanoNetworkId() {
+                var n = (window.cardanoMint && window.cardanoMint.network) || '';
+                n = String(n).toLowerCase();
+                return n === 'mainnet' ? 1 : 0;
+            }
+
+            function expectedNetworkLabel() {
+                var n = (window.cardanoMint && window.cardanoMint.network) || '';
+                n = String(n).toLowerCase();
+                if (n === 'mainnet') return 'Mainnet';
+                if (n === 'preprod') return 'Pre-production';
+                if (n === 'preview') return 'Preview';
+                return n || 'Testnet';
+            }
+
+            // True when the bech32 address belongs to the site's configured
+            // network. We check both the wallet-reported networkId AND the
+            // resolved address prefix because some wallets misreport one or
+            // the other when the user has multiple network profiles.
+            function isAddressOnExpectedNetwork(bech32) {
+                if (!bech32) return false;
+                var expected = expectedCardanoNetworkId();
+                var isTestnetAddr = /^addr_test1|^stake_test1/.test(bech32);
+                return expected === 1 ? !isTestnetAddr : isTestnetAddr;
+            }
+
             // ── Connect ──
             async function connect(walletKey) {
                 var cardano = window.cardano;
@@ -158,10 +186,44 @@
                 var provider = cardano[walletKey];
                 var api = await provider.enable();
 
+                // Network gate: every alt-pay invoice + Cardano mint tx is
+                // bound to the customer's address at quote time. If the wallet
+                // is on the wrong network we end up holding off-chain payment
+                // bound to an address that can never sign on this network, and
+                // the customer is stuck. Bail BEFORE we touch addresses or
+                // record any state.
+                var expectedId = expectedCardanoNetworkId();
+                var actualId  = null;
+                try {
+                    if (typeof api.getNetworkId === 'function') {
+                        actualId = await api.getNetworkId();
+                    }
+                } catch (e) {
+                    console.warn('[CardanoMint] getNetworkId threw:', e);
+                }
+                if (actualId !== null && actualId !== expectedId) {
+                    var actualLabel = (actualId === 1) ? 'Mainnet' : 'Testnet';
+                    throw new Error(
+                        'Wallet is on ' + actualLabel + ' but this site is on ' +
+                        expectedNetworkLabel() + '. Switch your wallet network and try again.'
+                    );
+                }
+
                 var usedAddresses = await api.getUsedAddresses();
                 var unusedAddresses = await api.getUnusedAddresses();
                 var addressHex = (usedAddresses && usedAddresses[0]) || (unusedAddresses && unusedAddresses[0]) || null;
                 var address = addressHex ? hexAddressToBech32(addressHex) : null;
+
+                // Belt-and-suspenders: verify the resolved address prefix.
+                // Catches wallets that respond to getNetworkId() but expose an
+                // address profile from a different network than the active one.
+                if (address && !isAddressOnExpectedNetwork(address)) {
+                    throw new Error(
+                        'Wallet returned a ' + (address.startsWith('addr_test1') ? 'Testnet' : 'Mainnet') +
+                        ' address but this site is on ' + expectedNetworkLabel() +
+                        '. Switch your wallet network and try again.'
+                    );
+                }
 
                 var balanceCbor = await api.getBalance();
                 var balanceLovelace = parseBalanceCbor(balanceCbor);
@@ -1022,7 +1084,27 @@
                     if (!mintWallet || !mintWallet.changeAddress) {
                         throw new Error('Wallet not confirmed');
                     }
-                    
+
+                    // Network re-check: even if the wallet was on the right
+                    // network at connect time, the user can switch wallet
+                    // networks between Step 1 and Step 2 without telling us
+                    // (Tommy's bug). Refuse to build if the bech32 address no
+                    // longer matches site network so we never produce a tx
+                    // that's certain to fail at signing time and orphan an
+                    // alt-pay invoice.
+                    var expectedSiteNetwork = (window.cardanoMint && window.cardanoMint.network) || 'preprod';
+                    var addrIsTestnet = /^addr_test1/.test(mintWallet.changeAddress);
+                    var siteIsMainnet = String(expectedSiteNetwork).toLowerCase() === 'mainnet';
+                    if (siteIsMainnet === addrIsTestnet) {
+                        throw new Error(
+                            'Your wallet switched networks. The connected address is ' +
+                            (addrIsTestnet ? 'Testnet' : 'Mainnet') +
+                            ' but this site needs ' +
+                            (siteIsMainnet ? 'Mainnet' : 'Pre-production') +
+                            '. Switch your wallet network and reconnect.'
+                        );
+                    }
+
                     // CRITICAL FIX: Get merchant address from the MINT NOW button's data attribute
                     const mintButton = document.getElementById('cardano-mint-now-btn');
                     const merchantAddress = mintButton?.dataset.merchantAddress || '';

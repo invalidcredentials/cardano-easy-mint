@@ -218,6 +218,25 @@ class NFTCheckoutController {
         error_log("policy_id: " . $policy_id);
         error_log("asset_id: " . $asset_id);
 
+        // Network gate: reject the build if the client's Cardano address is
+        // not on the same network as this site. Without this check, a customer
+        // whose wallet is on the wrong network can pay off-chain (BTC/ETH/SOL),
+        // bind the invoice to a wrong-network address, and either get stuck
+        // unable to sign or end up with a wallet-network mismatch we silently
+        // accept. Better to fail early with a clear message.
+        $site_network = strtolower((string) get_option('cardano_mint_anvil_api_url', ''));
+        $site_is_mainnet = (strpos($site_network, 'preprod') === false && strpos($site_network, 'preview') === false && strpos($site_network, 'sancho') === false);
+        $addr_is_testnet = (stripos($customer_address, 'addr_test1') === 0);
+        if ($site_is_mainnet === $addr_is_testnet) {
+            $expected_label = $site_is_mainnet ? 'Mainnet' : 'Pre-production';
+            $actual_label   = $addr_is_testnet ? 'Testnet'  : 'Mainnet';
+            wp_send_json_error([
+                'message' => 'Wallet network mismatch: your wallet is on ' . $actual_label
+                    . ' but this site is on ' . $expected_label
+                    . '. Switch your wallet network and reconnect.'
+            ]);
+        }
+
         // Validate inputs that must come from the client.
         if (!$merchant_address || !$customer_address || !$policy_id || $asset_id <= 0) {
             error_log("VALIDATION FAILED:");
