@@ -1,8 +1,8 @@
 <?php
 /*
 Plugin Name: Cardano Minting
-Description: NFT minting for Cardano sites via the Anvil API.
-Version: 3.0.0
+Description: NFT minting for Cardano sites via the Anvil API. Adds alt-chain payments (BTC / ETH / SOL), batch quantity (1-5 per tx), and a wallet-network gate.
+Version: 4.0.0
 Author: Pb
 Text Domain: cardano-minting
 */
