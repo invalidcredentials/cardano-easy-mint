@@ -203,9 +203,21 @@ class AltPayService {
             ]);
         }
 
-        if ($cmp === 0)      ChainInvoiceModel::set_status((int) $inv['id'], 'funded',    $extra);
-        elseif ($cmp === -1) ChainInvoiceModel::set_status((int) $inv['id'], 'underpaid', $extra);
-        else                 ChainInvoiceModel::set_status((int) $inv['id'], 'overpaid',  $extra);
+        $target = ($cmp === 0) ? 'funded' : (($cmp === -1) ? 'underpaid' : 'overpaid');
+        $ok = ChainInvoiceModel::set_status((int) $inv['id'], $target, $extra);
+        if (!$ok) {
+            // wpdb->update returned false, which means the row update was
+            // refused (column too small, type mismatch, etc.). Without this
+            // log line the watcher silently keeps re-running every minute
+            // and the invoice never advances. Surface it so the operator
+            // can see the underlying $wpdb->last_error in the PHP log.
+            global $wpdb;
+            error_log(
+                '[CardanoMint AltPay] reconcile failed to set_status invoice='
+                . (int) $inv['id'] . ' target=' . $target
+                . ' wpdb_last_error=' . ($wpdb ? $wpdb->last_error : '?')
+            );
+        }
     }
 
     public static function cancel(int $invoiceId): bool {
