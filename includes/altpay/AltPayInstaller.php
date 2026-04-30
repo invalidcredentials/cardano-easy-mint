@@ -92,7 +92,11 @@ class AltPayInstaller {
             mint_id                     INT UNSIGNED NOT NULL,
             customer_cardano_address    VARCHAR(128) NOT NULL,
             status                      VARCHAR(16)  NOT NULL,
-            observed_tx                 VARCHAR(80)  NULL,
+            -- VARCHAR(128) instead of 80: Solana base58 signatures are 88 chars
+            -- (64 bytes -> 88 base58 chars max). 80 silently truncated and
+            -- $wpdb->update returned false, leaving SOL invoices stuck in 'pending'
+            -- status forever even after on-chain payment cleared.
+            observed_tx                 VARCHAR(128) NULL,
             observed_amount_minor       VARCHAR(40)  NULL,
             observed_at                 DATETIME     NULL,
             confirmations               INT          NULL,
@@ -107,7 +111,7 @@ class AltPayInstaller {
         dbDelta("CREATE TABLE $tx_log (
             id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             invoice_id    INT UNSIGNED NOT NULL,
-            tx_hash       VARCHAR(80)  NOT NULL,
+            tx_hash       VARCHAR(128) NOT NULL,
             direction     VARCHAR(8)   NOT NULL,
             amount_minor  VARCHAR(40)  NOT NULL,
             confirmations INT          NULL,
