@@ -19,6 +19,8 @@ require_once plugin_dir_path(__FILE__) . 'includes/helpers/CardanoCLI.php';
 require_once plugin_dir_path(__FILE__) . 'includes/helpers/CardanoWalletPHP.php';
 require_once plugin_dir_path(__FILE__) . 'includes/helpers/PolicyImport.php';
 require_once plugin_dir_path(__FILE__) . 'includes/helpers/ApiKeys.php';
+require_once plugin_dir_path(__FILE__) . 'includes/helpers/TOTPHelper.php';
+require_once plugin_dir_path(__FILE__) . 'includes/helpers/BlockfrostClient.php';
 require_once plugin_dir_path(__FILE__) . 'includes/models/MintModel.php';
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/NFTCheckoutController.php';
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/PolicyWalletController.php';

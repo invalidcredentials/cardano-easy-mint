@@ -247,12 +247,17 @@
     }
 
     function chainMinorLabel(c) {
-        return c === 'btc' ? 'sats' : c === 'eth' ? 'wei' : 'lamports';
+        return c === 'btc' ? 'sats'
+             : c === 'eth' ? 'wei'
+             : c === 'sol' ? 'lamports'
+             : c === 'ada' ? 'lovelace'
+             : 'units';
     }
 
     function formatMajor(chain, minorStr) {
-        const decimals = { btc: 8, eth: 18, sol: 9 }[chain] || 0;
-        const display  = { btc: 8, eth: 6, sol: 4 }[chain] != null ? { btc: 8, eth: 6, sol: 4 }[chain] : decimals;
+        const decimals = { btc: 8, eth: 18, sol: 9, ada: 6 }[chain] || 0;
+        const displayMap = { btc: 8, eth: 6, sol: 4, ada: 6 };
+        const display  = displayMap[chain] != null ? displayMap[chain] : decimals;
         if (!minorStr || minorStr === '0') return '0';
         try {
             const big = BigInt(minorStr);
@@ -300,9 +305,14 @@
                 //   BTC: ~10,000 sat conservative buffer (covers ~5 sat/vbyte * 200 vbytes)
                 //   ETH: ~210,000 gwei (210,000,000,000 wei) conservative buffer
                 //   SOL: 5,000 lamports (Solana base fee per signature)
+                // Cardano min UTxO is ~1 ADA (1,000,000 lovelace), so we
+                // need at least that much LEFT BEHIND in the change output
+                // beyond fee. 1.25 ADA buffer keeps the change above min UTxO
+                // even on small wallets.
                 const FEE_BUFFER = chain === 'btc' ? 10000n
                                 : chain === 'eth' ? 210000000000n
                                 : chain === 'sol' ? 5000n
+                                : chain === 'ada' ? 1250000n
                                 : 0n;
                 let topBalance = data.children[0] && data.children[0].balance_minor !== '0' ? data.children[0].balance_minor : '';
                 let suggested = topBalance;
@@ -350,10 +360,12 @@
         const chain = String($btn.data('chain') || '').toLowerCase();
         const defaultAmt = String($btn.data('default-amount') || '');
 
-        const minorLabel = chain === 'btc' ? 'sats' : chain === 'eth' ? 'wei' : 'lamports';
+        const minorLabel = chainMinorLabel(chain);
         const placeholderAddr = chain === 'btc' ? 'bc1q… or tb1q…'
             : chain === 'eth' ? '0x…'
-            : 'Base58…';
+            : chain === 'sol' ? 'Base58…'
+            : chain === 'ada' ? 'addr1… or addr_test1…'
+            : 'address…';
         const toAddr = window.prompt('Refund destination (' + chain.toUpperCase() + ' address, ' + placeholderAddr + ')', '');
         if (!toAddr) return;
         const amount = window.prompt('Amount in ' + minorLabel + ' (smallest unit). Funded amount was ' + defaultAmt + '.', defaultAmt);
@@ -398,6 +410,185 @@
             .catch(function (e) {
                 $('.kg-altpay-save-status').text('Failed: ' + e.message).css('color', '#a00');
                 $btn.prop('disabled', false);
+            });
+    });
+
+    /* ─── TOTP / 2FA setup + disable flows ─────────────────────────── */
+
+    function openOverlay(html) {
+        const $overlay = $(html);
+        $('body').append($overlay);
+        return $overlay;
+    }
+
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+            return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+        });
+    }
+
+    $(document).on('click', '[data-action="totp-begin-setup"]', function () {
+        const $btn = $(this);
+        $btn.prop('disabled', true).text('Generating secret…');
+        ajax('cardano_altpay_totp_begin_setup', {})
+            .then(function (data) {
+                showTotpSetupDialog(data.secret, data.uri);
+            })
+            .catch(function (e) {
+                window.alert('Could not start 2FA setup: ' + e.message);
+            })
+            .always(function () {
+                $btn.prop('disabled', false).text('Enable 2FA');
+            });
+    });
+
+    function showTotpSetupDialog(secret, uri) {
+        const groups = (secret.match(/.{1,4}/g) || []).join(' ');
+        const html = `
+        <div class="kg-altpay-reveal-backdrop" style="position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:100000; display:flex; align-items:center; justify-content:center;">
+            <div class="kg-totp-setup-dialog" style="background:#fff; max-width:560px; width:92%; padding:26px 28px; border-radius:8px; box-shadow:0 10px 40px rgba(0,0,0,0.35);">
+                <h2 style="margin-top:0;">Set up Two-Factor Authentication</h2>
+                <ol style="line-height:1.65; padding-left:20px;">
+                    <li>Open your authenticator app (Google Authenticator, Authy, 1Password, Bitwarden, etc).</li>
+                    <li>Add a new account by <strong>manual entry</strong> or scan the URI below.</li>
+                    <li>Enter the 6-digit code your app generates.</li>
+                </ol>
+
+                <p style="margin: 14px 0 6px 0; font-weight:600; font-size: 13px;">Manual entry secret (base32):</p>
+                <div class="kg-totp-secret" style="background:#f5f5f5; padding:14px 16px; border-radius:6px; font-family:'Courier New', ui-monospace, monospace; font-size:16px; letter-spacing:1px; user-select:all; word-break:break-all; line-height:1.5;">
+                    ${escapeHtml(groups)}
+                </div>
+                <button type="button" class="button" data-action="totp-copy-secret" data-secret="${escapeHtml(secret)}" style="margin: 8px 0 14px 0;">Copy secret</button>
+
+                <details style="margin-bottom: 14px;">
+                    <summary style="cursor:pointer; font-size: 12px; color: #666;">Show otpauth:// URI (advanced — for QR generation or paste-import)</summary>
+                    <code style="display:block; margin-top: 8px; padding: 10px; background:#fafafa; border:1px solid #e0e0e0; border-radius:4px; font-size:11px; word-break:break-all; user-select:all;">${escapeHtml(uri)}</code>
+                </details>
+
+                <p style="margin: 18px 0 6px 0; font-weight:600; font-size: 13px;">Verify code:</p>
+                <input type="text" class="kg-totp-verify-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" style="width: 100%; padding: 10px 12px; font-family: ui-monospace, monospace; font-size: 18px; letter-spacing: 4px; border: 1px solid #c3c4c7; border-radius: 4px;">
+                <p class="kg-totp-verify-error" style="display:none; color:#a00; margin-top:8px; font-size:13px;"></p>
+
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top: 16px;">
+                    <button type="button" class="button button-primary button-large" data-action="totp-verify-setup">Verify and Enable</button>
+                    <button type="button" class="button button-large" data-action="totp-cancel-setup">Cancel</button>
+                </div>
+
+                <p style="font-size:12px; color:#666; margin-top:14px;">
+                    The secret expires in 5 minutes if not verified. After enabling, you'll receive 5 single-use recovery codes — save them somewhere safe.
+                </p>
+            </div>
+        </div>`;
+
+        const $overlay = openOverlay(html);
+
+        $overlay.on('click', '[data-action="totp-copy-secret"]', function () {
+            copyText($(this).data('secret')).then(function () {
+                $('[data-action="totp-copy-secret"]').text('Copied.');
+            }).catch(function () { window.alert('Copy failed; select the secret manually.'); });
+        });
+
+        $overlay.on('click', '[data-action="totp-cancel-setup"]', function () {
+            $overlay.remove();
+        });
+
+        $overlay.on('click', '[data-action="totp-verify-setup"]', function () {
+            const $btn = $(this);
+            const code = $overlay.find('.kg-totp-verify-code').val();
+            const $err = $overlay.find('.kg-totp-verify-error');
+            $err.hide().text('');
+            if (!/^\d{6}$/.test(String(code).trim())) {
+                $err.text('Enter the 6-digit code from your authenticator.').show();
+                return;
+            }
+            $btn.prop('disabled', true).text('Verifying…');
+            ajax('cardano_altpay_totp_verify_setup', { code: String(code).trim() })
+                .then(function (data) {
+                    $overlay.remove();
+                    showRecoveryCodes(data.recovery_codes || []);
+                })
+                .catch(function (e) {
+                    $err.text(e.message || 'Verification failed.').show();
+                    $btn.prop('disabled', false).text('Verify and Enable');
+                });
+        });
+    }
+
+    function showRecoveryCodes(codes) {
+        const list = codes.map(function (c) { return `<li><code style="font-size:16px; letter-spacing:1px; user-select:all;">${escapeHtml(c)}</code></li>`; }).join('');
+        const html = `
+        <div class="kg-altpay-reveal-backdrop" style="position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:100000; display:flex; align-items:center; justify-content:center;">
+            <div class="kg-totp-recovery-dialog" style="background:#fff; max-width:540px; width:92%; padding:26px 28px; border-radius:8px; box-shadow:0 10px 40px rgba(0,0,0,0.35);">
+                <h2 style="color: #dc3545; margin-top:0;">Save these recovery codes NOW</h2>
+                <p style="line-height:1.55;">
+                    <strong>This is your only chance to see these.</strong> If you lose your authenticator app and don't have a recovery code, you'll need server access to disable 2FA.
+                </p>
+                <p style="line-height:1.55; font-size: 13px; color: #555;">
+                    Each code works once. Treat them like passwords.
+                </p>
+                <ul style="background:#000; color:#0f0; padding:18px 26px; border-radius:6px; font-family:'Courier New', monospace; line-height:2; margin: 14px 0 16px 0; list-style: none;">
+                    ${list}
+                </ul>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <button type="button" class="button" data-action="totp-recovery-copy">Copy all</button>
+                    <button type="button" class="button" data-action="totp-recovery-download">Download as .txt</button>
+                    <button type="button" class="button button-primary" data-action="totp-recovery-dismiss">I have saved them</button>
+                </div>
+            </div>
+        </div>`;
+        const $overlay = openOverlay(html);
+
+        $overlay.on('click', '[data-action="totp-recovery-copy"]', function () {
+            copyText(codes.join('\n')).then(function () {
+                $(this).text('Copied.');
+            }.bind(this)).catch(function () { window.alert('Copy failed; select manually.'); });
+        });
+        $overlay.on('click', '[data-action="totp-recovery-download"]', function () {
+            const blob = new Blob([
+                'Knights Guild Mint - Two-Factor Recovery Codes\n',
+                'Generated: ' + new Date().toISOString() + '\n',
+                'Each code works once. Treat them like passwords.\n\n',
+                codes.join('\n') + '\n'
+            ], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'kg-mint-2fa-recovery-codes.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+        $overlay.on('click', '[data-action="totp-recovery-dismiss"]', function () {
+            if (!window.confirm('Dismissing reloads the page. Make sure you saved at least one code.')) return;
+            $overlay.remove();
+            window.location.reload();
+        });
+    }
+
+    $(document).on('click', '[data-action="altpay-copy-address"]', function () {
+        const $btn = $(this);
+        const addr = String($btn.data('address') || '');
+        if (!addr) return;
+        const orig = $btn.html();
+        copyText(addr).then(function () {
+            $btn.html('Copied').css('color', '#0a7d22');
+            setTimeout(function () { $btn.html(orig).css('color', ''); }, 1400);
+        }).catch(function () {
+            window.alert('Copy failed. Address:\n\n' + addr);
+        });
+    });
+
+    $(document).on('click', '[data-action="totp-disable"]', function () {
+        const code = window.prompt('Enter your current 6-digit code (or a recovery code) to disable 2FA:');
+        if (!code) return;
+        ajax('cardano_altpay_totp_disable', { code: String(code).trim() })
+            .then(function () {
+                window.alert('2FA disabled.');
+                window.location.reload();
+            })
+            .catch(function (e) {
+                window.alert('Disable failed: ' + e.message);
             });
     });
 

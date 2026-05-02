@@ -25,9 +25,64 @@ $sol_rpc_devnet  = (string) get_option('cardano_mint_altpay_sol_rpc_devnet', '')
 $btc_sweep       = (string) get_option('cardano_mint_altpay_btc_sweep_address', '');
 $eth_sweep       = (string) get_option('cardano_mint_altpay_eth_sweep_address', '');
 $sol_sweep       = (string) get_option('cardano_mint_altpay_sol_sweep_address', '');
+
+$ada_sweep       = (string) get_option('cardano_mint_altpay_ada_sweep_address', '');
+$bf_mainnet      = (string) get_option('cardano_mint_altpay_blockfrost_mainnet', '');
+$bf_preprod      = (string) get_option('cardano_mint_altpay_blockfrost_preprod', '');
+$bf_preview      = (string) get_option('cardano_mint_altpay_blockfrost_preview', '');
+
+$totp_enabled    = \CardanoMintPay\Controllers\AltPayAdminController::isTotpEnabled();
+$totp_recovery   = \CardanoMintPay\Controllers\AltPayAdminController::totpRecoveryRemaining();
 ?>
 
 <div class="kg-altpay-settings">
+
+    <h2 style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 18px;">&#128274;</span>
+        Two-Factor Authentication
+    </h2>
+    <p class="description" style="max-width: 760px;">
+        Optional 2FA gate on the Payment Wallets page (this page). Adds a
+        second factor on top of your WordPress admin login: even if your WP
+        password is compromised, an attacker cannot view or generate
+        payment wallets without your authenticator app. Compatible with
+        Google Authenticator, Authy, 1Password, Bitwarden, and any RFC
+        6238 TOTP app. Independent from WordPress core 2FA — only gates
+        this admin page.
+    </p>
+
+    <table class="form-table" role="presentation">
+        <tbody>
+            <tr>
+                <th scope="row"><label>Status</label></th>
+                <td>
+                    <?php if ($totp_enabled): ?>
+                        <strong style="color: #0a7d22;">&#10003; Enabled</strong>
+                        <span style="color:#888; font-size: 12px;">
+                            (<?php echo (int) $totp_recovery; ?> recovery code<?php echo $totp_recovery === 1 ? '' : 's'; ?> remaining)
+                        </span>
+                        <p class="description" style="margin-top: 6px;">
+                            All visits to this page require a 6-digit code or recovery code. Unlock lasts 30 minutes per WP user.
+                        </p>
+                        <button type="button" class="button" data-action="totp-disable" style="margin-top: 10px;">
+                            Disable 2FA
+                        </button>
+                    <?php else: ?>
+                        <strong style="color:#888;">Off</strong>
+                        <p class="description" style="margin-top: 6px;">
+                            Recommended if you have payment wallets with non-trivial balances or multiple admins.
+                        </p>
+                        <button type="button" class="button button-primary" data-action="totp-begin-setup" style="margin-top: 10px;">
+                            Enable 2FA
+                        </button>
+                    <?php endif; ?>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <hr style="margin: 28px 0;">
+
     <h2>Settings</h2>
 
     <form id="kg-altpay-settings-form">
@@ -153,6 +208,44 @@ $sol_sweep       = (string) get_option('cardano_mint_altpay_sol_sweep_address', 
                     <th scope="row"><label>Sweep target</label></th>
                     <td>
                         <input type="text" name="sol_sweep_address" value="<?php echo esc_attr($sol_sweep); ?>" placeholder="Base58 address" style="width:100%; max-width:520px; font-family: ui-monospace, monospace;">
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2 style="margin-top:24px;">ADA</h2>
+        <p class="description" style="max-width: 760px;">
+            ADA payment wallets use the Anvil API for transaction build/submit
+            (already configured via the main plugin's API key) and Blockfrost
+            for read-only balance lookups on the dashboard. Project IDs are
+            network-specific — get yours at <a href="https://blockfrost.io/" target="_blank" rel="noopener">blockfrost.io</a> (free tier is plenty).
+        </p>
+        <table class="form-table" role="presentation">
+            <tbody>
+                <tr>
+                    <th scope="row"><label>Blockfrost project ID — Mainnet</label></th>
+                    <td>
+                        <input type="text" name="blockfrost_mainnet" value="<?php echo esc_attr($bf_mainnet); ?>" placeholder="mainnet…" style="width:100%; max-width:520px; font-family: ui-monospace, monospace;" autocomplete="off">
+                        <p class="description">Required to show mainnet ADA wallet balances on the dashboard.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label>Blockfrost project ID — Preprod</label></th>
+                    <td>
+                        <input type="text" name="blockfrost_preprod" value="<?php echo esc_attr($bf_preprod); ?>" placeholder="preprod…" style="width:100%; max-width:520px; font-family: ui-monospace, monospace;" autocomplete="off">
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label>Blockfrost project ID — Preview</label></th>
+                    <td>
+                        <input type="text" name="blockfrost_preview" value="<?php echo esc_attr($bf_preview); ?>" placeholder="preview…" style="width:100%; max-width:520px; font-family: ui-monospace, monospace;" autocomplete="off">
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label>Sweep target</label></th>
+                    <td>
+                        <input type="text" name="ada_sweep_address" value="<?php echo esc_attr($ada_sweep); ?>" placeholder="addr1… (mainnet) or addr_test1…" style="width:100%; max-width:520px; font-family: ui-monospace, monospace;">
+                        <p class="description">Default destination for the Dashboard <strong>Send funds</strong> button on ADA wallets. Leave blank to paste manually each time.</p>
                     </td>
                 </tr>
             </tbody>
