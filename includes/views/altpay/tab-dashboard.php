@@ -18,14 +18,17 @@ use CardanoMintPay\AltPay\PriceOracle;
 
 global $wpdb;
 
-$chains = ['btc', 'eth', 'sol'];
+$chains = ['btc', 'eth', 'sol', 'ada'];
 $chainSummary = [];
 foreach ($chains as $c) {
     $wallets = ChainWalletModel::list_for_chain($c, false);
     $tbl = ChainInvoiceModel::table();
-    $pendingCount = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM `$tbl` WHERE chain = %s AND status = %s", $c, 'pending'));
-    $consumedCount = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM `$tbl` WHERE chain = %s AND status = %s", $c, 'consumed'));
-    $rate = PriceOracle::getRate($c);
+    // ADA wallets here are merchant-side custodial receivers, not per-mint
+    // invoice escrows like BTC/ETH/SOL — so pending/consumed counters are
+    // always 0 for ADA. Skip the prepare to avoid a zero-row query.
+    $pendingCount  = ($c === 'ada') ? 0 : (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM `$tbl` WHERE chain = %s AND status = %s", $c, 'pending'));
+    $consumedCount = ($c === 'ada') ? 0 : (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM `$tbl` WHERE chain = %s AND status = %s", $c, 'consumed'));
+    $rate = ($c === 'ada') ? 0 : PriceOracle::getRate($c);
     $chainSummary[$c] = [
         'wallets'  => $wallets,
         'pending'  => $pendingCount,
@@ -45,11 +48,39 @@ $recent = $wpdb->get_results(
     ARRAY_A
 );
 
+/**
+ * Resolve a single primary receive address for a wallet to display + copy.
+ * - ADA: the stored payment_address (we put it in xpub at generation time).
+ * - BTC/ETH/SOL: derive index 0 via the provider. Cached for 1 hour because
+ *   it's deterministic — the address never changes for a given wallet.
+ */
+function dash_wallet_address(string $chain, array $wallet): string {
+    $cacheKey = 'cm_altpay_addr0_' . $chain . '_' . (int) ($wallet['id'] ?? 0);
+    $cached = get_transient($cacheKey);
+    if (is_string($cached) && $cached !== '') return $cached;
+
+    $addr = '';
+    if ($chain === 'ada') {
+        $addr = (string) ($wallet['xpub'] ?? '');
+    } else {
+        $provider = \CardanoMintPay\AltPay\AltPayService::provider($chain);
+        if ($provider) {
+            try {
+                $addr = (string) $provider->deriveChildAddress((int) $wallet['id'], 0);
+            } catch (\Throwable $e) {
+                $addr = '';
+            }
+        }
+    }
+    if ($addr !== '') set_transient($cacheKey, $addr, HOUR_IN_SECONDS);
+    return $addr;
+}
+
 function dash_format_minor(string $chain, $minor): string {
     $minor = (string) $minor;
     if ($minor === '' || $minor === '0') return '0';
-    $decimals = ['btc' => 8, 'eth' => 18, 'sol' => 9][$chain] ?? 0;
-    $display  = ['btc' => 8, 'eth' => 6, 'sol' => 4][$chain] ?? $decimals;
+    $decimals = ['btc' => 8, 'eth' => 18, 'sol' => 9, 'ada' => 6][$chain] ?? 0;
+    $display  = ['btc' => 8, 'eth' => 6, 'sol' => 4, 'ada' => 6][$chain] ?? $decimals;
     if (function_exists('bcdiv')) {
         $whole = bcdiv($minor, bcpow('10', (string) $decimals), 0);
         $remainder = bcmod($minor, bcpow('10', (string) $decimals));
@@ -75,7 +106,11 @@ function dash_format_minor(string $chain, $minor): string {
                 <div style="display:flex; align-items:baseline; justify-content:space-between;">
                     <h3 style="margin:0;"><?php echo esc_html(strtoupper($c)); ?></h3>
                     <span style="font-size:12px; color:#666;">
-                        $<?php echo $sum['rate'] > 0 ? esc_html(number_format($sum['rate'], 2)) : '—'; ?> per <?php echo esc_html(strtoupper($c)); ?>
+                        <?php if ($c === 'ada'): ?>
+                            custodial receive
+                        <?php else: ?>
+                            $<?php echo $sum['rate'] > 0 ? esc_html(number_format($sum['rate'], 2)) : '—'; ?> per <?php echo esc_html(strtoupper($c)); ?>
+                        <?php endif; ?>
                     </span>
                 </div>
                 <div style="margin-top:10px;">
@@ -83,14 +118,37 @@ function dash_format_minor(string $chain, $minor): string {
                         <p style="margin:0; color:#666;"><em>No wallets configured yet. <a href="<?php echo esc_url(AltPayAdminController::pageUrl(['tab' => $c])); ?>">Generate one</a>.</em></p>
                     <?php else: ?>
                         <div class="kg-altpay-wallet-rows">
-                            <?php foreach ($sum['wallets'] as $w): ?>
+                            <?php foreach ($sum['wallets'] as $w):
+                                $w_addr = dash_wallet_address($c, $w);
+                            ?>
                                 <div class="kg-altpay-wallet-row" data-dash-wallet-id="<?php echo esc_attr($w['id']); ?>" style="padding:8px 0; border-top:1px dashed #eee;">
                                     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
                                         <strong><?php echo esc_html($w['name']); ?></strong>
                                         <code style="font-size:11px; color:#888;"><?php echo esc_html($w['network']); ?></code>
                                     </div>
-                                    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:4px;">
-                                        <span style="color:#666; font-size:12px;"><?php echo (int) $w['next_index']; ?> children issued</span>
+
+                                    <!-- Receive address: ADA = single payment addr; BTC/ETH/SOL = index 0 -->
+                                    <div style="display:flex; align-items:flex-start; gap:6px; margin-top:5px;">
+                                        <code style="flex:1; font-size:11px; color:#444; padding:5px 8px; background:#f5f5f5; border-radius:3px; font-family: ui-monospace, SFMono-Regular, monospace; word-break:break-all; line-height:1.45; user-select:all;">
+                                            <?php echo $w_addr === '' ? '<em style="color:#999;">address unavailable</em>' : esc_html($w_addr); ?>
+                                        </code>
+                                        <?php if ($w_addr !== ''): ?>
+                                            <button type="button" class="button button-small"
+                                                    data-action="altpay-copy-address"
+                                                    data-address="<?php echo esc_attr($w_addr); ?>"
+                                                    title="Copy full address"
+                                                    style="font-size:10px; line-height:1; padding:3px 8px; height:auto; flex-shrink:0;">
+                                                Copy
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+
+                                    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:6px;">
+                                        <?php if ($c === 'ada'): ?>
+                                            <span style="color:#888; font-size:11px;">single-address custodial</span>
+                                        <?php else: ?>
+                                            <span style="color:#666; font-size:12px;"><?php echo (int) $w['next_index']; ?> children issued</span>
+                                        <?php endif; ?>
                                         <span class="kg-altpay-balance" data-dash-balance="<?php echo esc_attr($w['id']); ?>" style="font-family: ui-monospace, monospace; font-size:13px;">
                                             <em>checking…</em>
                                         </span>
@@ -109,10 +167,12 @@ function dash_format_minor(string $chain, $minor): string {
                         </div>
                     <?php endif; ?>
                 </div>
-                <div style="margin-top:12px; display:flex; gap:14px; font-size:12px; color:#555;">
-                    <span><strong style="color:#222;"><?php echo $sum['pending']; ?></strong> pending invoice<?php echo $sum['pending'] === 1 ? '' : 's'; ?></span>
-                    <span><strong style="color:#222;"><?php echo $sum['consumed']; ?></strong> minted</span>
-                </div>
+                <?php if ($c !== 'ada'): ?>
+                    <div style="margin-top:12px; display:flex; gap:14px; font-size:12px; color:#555;">
+                        <span><strong style="color:#222;"><?php echo $sum['pending']; ?></strong> pending invoice<?php echo $sum['pending'] === 1 ? '' : 's'; ?></span>
+                        <span><strong style="color:#222;"><?php echo $sum['consumed']; ?></strong> minted</span>
+                    </div>
+                <?php endif; ?>
             </div>
         <?php endforeach; ?>
     </div>

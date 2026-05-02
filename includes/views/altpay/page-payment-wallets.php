@@ -16,6 +16,7 @@ $tabs = [
     'btc'       => 'BTC',
     'eth'       => 'ETH',
     'sol'       => 'SOL',
+    'ada'       => 'ADA',
     'invoices'  => 'Invoices',
     'settings'  => 'Settings',
 ];
@@ -54,6 +55,12 @@ $tabs = [
         $views_dir = plugin_dir_path(__FILE__);
         if ($tab === 'dashboard') {
             include $views_dir . 'tab-dashboard.php';
+        } elseif ($tab === 'ada') {
+            // ADA has its own view because it's a single-address custodial
+            // wallet, not an HD wallet with per-mint child derivations like
+            // BTC/ETH/SOL. Storage is shared (wp_cm_chain_wallets) but the
+            // UI surface is materially different.
+            include $views_dir . 'tab-ada.php';
         } elseif (in_array($tab, ['btc','eth','sol'], true)) {
             $chain = $tab;
             include $views_dir . 'tab-chain.php';
