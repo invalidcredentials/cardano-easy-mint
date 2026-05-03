@@ -85,7 +85,9 @@ class EthRpcClient {
     public function checkAddressBalance(string $address, string $network): array {
         $url = $this->rpcUrl($network);
         $balanceHex = $this->call($url, 'eth_getBalance', [strtolower($address), 'latest']);
-        if ($balanceHex === null) return ['balance_minor' => '0', 'last_tx' => null, 'confirmations' => null];
+        if (!is_string($balanceHex) || $balanceHex === '') {
+            return ['balance_minor' => '0', 'last_tx' => null, 'confirmations' => null];
+        }
 
         $balance = $this->hexToDecimalString($balanceHex);
 
