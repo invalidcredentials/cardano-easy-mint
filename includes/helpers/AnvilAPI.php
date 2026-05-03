@@ -165,16 +165,22 @@ class AnvilAPI {
         $receipt_amount = 1.0 * $quantity;
         error_log("Receipt amount: " . $receipt_amount);
 
-        // Generate unique asset name(s) for this mint. For qty>1 we suffix
-        // _001 / _002 / ... so each NFT in the batch has a distinct on-chain
-        // asset id. The base prefix is shared per-tx (timestamp + customer/policy
-        // hash) so wallets can group them visually as one batch.
+        // Per-policy global counter so asset names increment additively across
+        // mints (e.g. _019, _020, _021…), not just within a single batch. The
+        // base prefix (timestamp + customer/policy hash) is the on-chain
+        // uniqueness backstop — concurrent mints under the same suffix number
+        // would still produce different bases and not collide on chain.
+        // 3-digit padding through _999, naturally extends to 4 digits past
+        // that. Default 0 → next mint is _001 for any newly-created policy.
+        $counter_key = 'cardano_mint_seq_' . $policy_id;
+        $start = (int) get_option($counter_key, 0);
+        update_option($counter_key, $start + $quantity, false);
+
         $asset_name_base = 'NFT_' . time() . '_' . substr(md5($customer_address . $policy_id), 0, 8);
         $asset_names = array();
         for ($i = 1; $i <= $quantity; $i++) {
-            $asset_names[] = $quantity > 1
-                ? $asset_name_base . '_' . str_pad((string) $i, 3, '0', STR_PAD_LEFT)
-                : $asset_name_base;
+            $seq = str_pad((string) ($start + $i), 3, '0', STR_PAD_LEFT);
+            $asset_names[] = $asset_name_base . '_' . $seq;
         }
         // Keep $asset_name_raw set to the first name for any downstream code
         // that still references the single-asset shape (metadata defaults etc).
@@ -397,14 +403,13 @@ class AnvilAPI {
                 'quantity' => 1
             );
 
-            // Per-asset metadata: clone the base CIP-25 blob and, for batches,
-            // append a sequential identifier so each minted NFT renders with
-            // its own name in wallets even when the underlying art is shared.
+            // Per-asset metadata: clone the base CIP-25 blob and append the
+            // global sequence number so the wallet display name (e.g. "Shield
+            // #019") matches the on-chain asset_name suffix (..._019).
             $asset_meta = $cip25_metadata;
-            if ($quantity > 1) {
-                $asset_meta['name'] = (isset($cip25_metadata['name']) ? $cip25_metadata['name'] : $nft_name)
-                    . ' #' . str_pad((string) ($idx + 1), 3, '0', STR_PAD_LEFT);
-            }
+            $seq_num = $start + $idx + 1;
+            $asset_meta['name'] = (isset($cip25_metadata['name']) ? $cip25_metadata['name'] : $nft_name)
+                . ' #' . str_pad((string) $seq_num, 3, '0', STR_PAD_LEFT);
 
             $mint_array[] = array(
                 'version' => 'cip25',  // CRITICAL: tells Anvil to generate 721 metadata
