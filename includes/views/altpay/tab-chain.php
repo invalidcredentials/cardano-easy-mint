@@ -111,7 +111,12 @@ $expected_for_1usd = AltPayService::provider($chain)?->expectedAmountMinor(1.0, 
             </thead>
             <tbody>
             <?php foreach ($active_wallets as $w):
-                $live = AltPayAdminController::liveBalance($chain, ($w['xpub'] ?? '') ?: $w['name'], $w['network']);
+                $addr0 = '';
+                if ($prov = AltPayService::provider($chain)) {
+                    try { $addr0 = (string) $prov->deriveChildAddress((int) $w['id'], 0); }
+                    catch (\Throwable $e) { $addr0 = ''; }
+                }
+                $live = ($addr0 !== '') ? AltPayAdminController::liveBalance($chain, $addr0, $w['network']) : null;
                 $invoices = ChainInvoiceModel::list_filtered(['chain' => $chain], 1);
                 ?>
                 <tr data-wallet-id="<?php echo esc_attr($w['id']); ?>">
