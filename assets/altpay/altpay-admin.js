@@ -277,6 +277,12 @@
         const minorLabel = chainMinorLabel(chain);
         const sweepDefault = (cfg.sweepTargets && cfg.sweepTargets[chain]) || '';
 
+        // ADA splits config (only meaningful when chain === 'ada').
+        const adaSplits = (cfg.adaSweepSplits && cfg.adaSweepSplits.enabled) ? (cfg.adaSweepSplits.rows || []) : [];
+        const useSplits = chain === 'ada' && adaSplits.length > 0;
+        // 1,000 ADA hard cap, mirrored client-side so the prefill never suggests over.
+        const ADA_MAX_LOVELACE = BigInt((cfg.adaSweepSplits && cfg.adaSweepSplits.maxLovelacePerTx) || '1000000000');
+
         $btn.prop('disabled', true).text('Checking balances…');
         ajax('cardano_altpay_wallet_balances', { wallet_id: walletId })
             .then(function (data) {
@@ -296,8 +302,15 @@
                 lines.push('\nThis sends from the most-funded single child address. Repeat to drain more children.');
                 window.alert(lines.join('\n'));
 
-                const dest = window.prompt('Send to (your external ' + chain.toUpperCase() + ' wallet address):', sweepDefault);
-                if (!dest) return;
+                // ADA + splits enabled: skip the destination prompt entirely.
+                // Destinations come from the saved splits config.
+                let dest;
+                if (useSplits) {
+                    dest = '(splits)'; // placeholder for the confirm copy; server ignores to_address when splits=1
+                } else {
+                    dest = window.prompt('Send to (your external ' + chain.toUpperCase() + ' wallet address):', sweepDefault);
+                    if (!dest) return;
+                }
 
                 // Cap the default amount at (top-child balance - network fee buffer)
                 // so sending 'max' doesn't overrun the fee. Customer can still type
@@ -320,11 +333,19 @@
                     if (topBalance) {
                         const balBig = BigInt(topBalance);
                         suggested = balBig > FEE_BUFFER ? (balBig - FEE_BUFFER).toString() : '0';
+                        // ADA: also clamp suggestion to the per-tx cap so the prefill
+                        // never invites the operator to exceed it.
+                        if (chain === 'ada' && BigInt(suggested) > ADA_MAX_LOVELACE) {
+                            suggested = ADA_MAX_LOVELACE.toString();
+                        }
                     }
                 } catch (e) { /* fall through with raw topBalance */ }
 
+                const promptHeader = chain === 'ada'
+                    ? 'Amount in lovelace (smallest unit). Per-tx cap: ' + ADA_MAX_LOVELACE.toString() + ' lovelace (1,000 ADA).\n\n'
+                    : 'Amount in ' + minorLabel + ' (smallest unit).\n\n';
                 const amt = window.prompt(
-                    'Amount in ' + minorLabel + ' (smallest unit).\n\n' +
+                    promptHeader +
                     'Top child holds ' + (topBalance || '0') + ' ' + minorLabel + '.\n' +
                     'Suggested max (after ~' + FEE_BUFFER.toString() + ' ' + minorLabel + ' fee buffer): ' + suggested,
                     suggested
@@ -332,16 +353,49 @@
                 if (!amt) return;
                 const cleanAmt = String(amt).replace(/[^0-9]/g, '');
                 if (!cleanAmt || cleanAmt === '0') { window.alert('Amount must be a positive integer in ' + minorLabel + '.'); return; }
+                // Client-side cap so we surface the limit before round-tripping.
+                if (chain === 'ada') {
+                    try {
+                        if (BigInt(cleanAmt) > ADA_MAX_LOVELACE) {
+                            window.alert('Per-transaction cap is 1,000 ADA (' + ADA_MAX_LOVELACE.toString() + ' lovelace). Reduce and retry.');
+                            return;
+                        }
+                    } catch (e) { /* let the server reject */ }
+                }
 
-                if (!window.confirm('Confirm withdrawal:\n\n  wallet: #' + walletId + ' (' + chain.toUpperCase() + ')\n  amount: ' + cleanAmt + ' ' + minorLabel + ' (' + formatMajor(chain, cleanAmt) + ' ' + chain.toUpperCase() + ')\n  to: ' + dest + '\n\nThis broadcasts a real transaction. Continue?')) return;
+                // Build the confirm message. Splits get a per-output breakdown.
+                let confirmMsg = 'Confirm withdrawal:\n\n  wallet: #' + walletId + ' (' + chain.toUpperCase() + ')\n  amount: ' + cleanAmt + ' ' + minorLabel + ' (' + formatMajor(chain, cleanAmt) + ' ' + chain.toUpperCase() + ')\n';
+                if (useSplits) {
+                    confirmMsg += '  destinations:\n';
+                    let amtBig;
+                    try { amtBig = BigInt(cleanAmt); } catch (e) { amtBig = 0n; }
+                    adaSplits.forEach(function (r) {
+                        // Mirror server math: floor(amount * pct_bps / 10000).
+                        const bps = BigInt(Math.round((r.percent || 0) * 100));
+                        const share = amtBig > 0n ? (amtBig * bps) / 10000n : 0n;
+                        const labelTxt = r.label ? ' [' + r.label + ']' : '';
+                        confirmMsg += '    ' + r.percent.toFixed(2) + '% -> ' + share.toString() + ' lovelace (' + formatMajor('ada', share.toString()) + ' ADA)  ' + r.address.substring(0, 12) + '…' + r.address.substring(r.address.length - 8) + labelTxt + '\n';
+                    });
+                } else {
+                    confirmMsg += '  to: ' + dest + '\n';
+                }
+                confirmMsg += '\nThis broadcasts a real transaction. Continue?';
+
+                if (!window.confirm(confirmMsg)) return;
 
                 $btn.prop('disabled', true).text('Sending…');
-                ajax('cardano_altpay_send_from_wallet', {
+                const sendPayload = {
                     wallet_id: walletId,
-                    to_address: dest.trim(),
                     amount_minor: cleanAmt,
-                }).then(function (r) {
-                    window.alert('Withdrawal broadcast.\n\nTx: ' + (r.tx_hash || '(no hash)') + '\nFrom child index: ' + r.source_index);
+                };
+                if (useSplits) {
+                    sendPayload.splits = '1';
+                } else {
+                    sendPayload.to_address = dest.trim();
+                }
+                ajax('cardano_altpay_send_from_wallet', sendPayload).then(function (r) {
+                    const splitNote = r.split ? '\nSplit across ' + (r.outputs ? r.outputs.length : '?') + ' outputs.' : '';
+                    window.alert('Withdrawal broadcast.\n\nTx: ' + (r.tx_hash || '(no hash)') + '\nFrom child index: ' + r.source_index + splitNote);
                     window.location.reload();
                 }).catch(function (e) {
                     window.alert('Withdrawal failed: ' + e.message);
@@ -394,24 +448,94 @@
         $form.find('input, select').each(function () {
             const name = this.name;
             if (!name) return;
+            // The splits editor inputs have classes, not name attrs — collected separately below.
+            if (this.classList && (this.classList.contains('kg-ada-split-addr')
+                || this.classList.contains('kg-ada-split-pct')
+                || this.classList.contains('kg-ada-split-label'))) return;
             if (this.type === 'checkbox') {
                 if (this.checked) payload[name] = '1';
             } else {
                 payload[name] = $(this).val();
             }
         });
+        // Harvest splits rows in display order, JSON-encoded so PHP gets a
+        // structured array instead of fighting bracket-notation form names.
+        const splitRows = [];
+        $('#kg-ada-splits-rows .kg-ada-split-row').each(function () {
+            const addr = String($(this).find('.kg-ada-split-addr').val() || '').trim();
+            const pctRaw = String($(this).find('.kg-ada-split-pct').val() || '').trim();
+            const label = String($(this).find('.kg-ada-split-label').val() || '').trim();
+            if (!addr && !pctRaw) return; // skip fully-blank rows
+            splitRows.push({ address: addr, percent: parseFloat(pctRaw) || 0, label: label });
+        });
+        payload.ada_sweep_splits = JSON.stringify(splitRows);
+
         $btn.prop('disabled', true);
         $('.kg-altpay-save-status').text('Saving…').css('color', '#555');
         ajax('cardano_altpay_save_settings', payload)
             .then(function () {
-                $('.kg-altpay-save-status').text('Saved.').css('color', '#0a7d22');
-                $btn.prop('disabled', false);
+                $('.kg-altpay-save-status').text('Saved. Reloading…').css('color', '#0a7d22');
+                // Reload so cardanoAltPay.adaSweepSplits picked up by other handlers
+                // (Send funds button) reflects the new config without a stale localize.
+                setTimeout(function () { window.location.reload(); }, 600);
             })
             .catch(function (e) {
                 $('.kg-altpay-save-status').text('Failed: ' + e.message).css('color', '#a00');
                 $btn.prop('disabled', false);
             });
     });
+
+    /* ─── ADA splits editor ────────────────────────────────────────── */
+
+    function adaSplitsRecalcTotal() {
+        let total = 0;
+        $('#kg-ada-splits-rows .kg-ada-split-pct').each(function () {
+            const v = parseFloat($(this).val());
+            if (!isNaN(v)) total += v;
+        });
+        const $tot = $('#kg-ada-splits-total');
+        const $stat = $('#kg-ada-splits-status');
+        $tot.text(total.toFixed(2));
+        // Float-safe equality: epsilon at 0.005 since percent precision is two decimals.
+        if (Math.abs(total - 100) < 0.005) {
+            $tot.css('color', '#0a7d22');
+            $stat.text('✓ valid').css('color', '#0a7d22');
+        } else {
+            $tot.css('color', '#a00');
+            $stat.text(total < 100 ? '(needs ' + (100 - total).toFixed(2) + '% more)' : '(over by ' + (total - 100).toFixed(2) + '%)').css('color', '#a00');
+        }
+    }
+
+    $(document).on('change', '#kg-ada-splits-enabled', function () {
+        $('#kg-ada-splits-editor').toggle(this.checked);
+        adaSplitsRecalcTotal();
+    });
+
+    $(document).on('input change', '#kg-ada-splits-rows .kg-ada-split-pct', adaSplitsRecalcTotal);
+
+    $(document).on('click', '#kg-ada-split-add', function () {
+        const rowHtml = '<tr class="kg-ada-split-row">'
+            + '<td><input type="text" class="kg-ada-split-addr" value="" placeholder="addr1… or addr_test1…" style="width:100%; font-family: ui-monospace, monospace;"></td>'
+            + '<td><input type="number" class="kg-ada-split-pct" value="" min="0.01" max="100" step="0.01" style="width:90px;"> %</td>'
+            + '<td><input type="text" class="kg-ada-split-label" value="" placeholder="treasury" style="width:100%;"></td>'
+            + '<td><button type="button" class="button button-small kg-ada-split-remove" title="Remove row">&times;</button></td>'
+            + '</tr>';
+        $('#kg-ada-splits-rows').append(rowHtml);
+    });
+
+    $(document).on('click', '.kg-ada-split-remove', function () {
+        const $rows = $('#kg-ada-splits-rows .kg-ada-split-row');
+        if ($rows.length <= 1) {
+            // Keep at least one row visible so the editor doesn't collapse to nothing.
+            $(this).closest('tr').find('input').val('');
+        } else {
+            $(this).closest('tr').remove();
+        }
+        adaSplitsRecalcTotal();
+    });
+
+    // Run once on load if the editor is on the page.
+    if ($('#kg-ada-splits-rows').length) adaSplitsRecalcTotal();
 
     /* ─── TOTP / 2FA setup + disable flows ─────────────────────────── */
 
