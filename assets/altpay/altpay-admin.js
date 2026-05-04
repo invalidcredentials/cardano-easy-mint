@@ -515,9 +515,9 @@
 
     $(document).on('click', '#kg-ada-split-add', function () {
         const rowHtml = '<tr class="kg-ada-split-row">'
-            + '<td><input type="text" class="kg-ada-split-addr" value="" placeholder="addr1… or addr_test1…" style="width:100%; font-family: ui-monospace, monospace;"></td>'
-            + '<td><input type="number" class="kg-ada-split-pct" value="" min="0.01" max="100" step="0.01" style="width:90px;"> %</td>'
-            + '<td><input type="text" class="kg-ada-split-label" value="" placeholder="treasury" style="width:100%;"></td>'
+            + '<td><input type="text" class="kg-ada-split-addr" value="" placeholder="addr1… or addr_test1…" autocomplete="off" style="width:100%; font-family: ui-monospace, monospace;"></td>'
+            + '<td><input type="number" class="kg-ada-split-pct" value="" min="0.01" max="100" step="0.01" autocomplete="off" style="width:90px;"> %</td>'
+            + '<td><input type="text" class="kg-ada-split-label" value="" placeholder="treasury" autocomplete="off" style="width:100%;"></td>'
             + '<td><button type="button" class="button button-small kg-ada-split-remove" title="Remove row">&times;</button></td>'
             + '</tr>';
         $('#kg-ada-splits-rows').append(rowHtml);
