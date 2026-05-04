@@ -272,18 +272,28 @@ $totp_recovery   = \CardanoMintPay\Controllers\AltPayAdminController::totpRecove
                                     </tr>
                                 </thead>
                                 <tbody id="kg-ada-splits-rows">
+                                    <?php
+                                    // Stored format from adaSplitsParse: { address, percent_bps, label }.
+                                    // Older in-flight saves may have used 'percent' directly. Render handles both
+                                    // so a partial-load doesn't leave the percent column blank and confuse the operator.
+                                    $row_pct_display = function ($row) {
+                                        if (isset($row['percent_bps'])) return number_format(((int) $row['percent_bps']) / 100, 2, '.', '');
+                                        if (isset($row['percent']))     return (string) (float) $row['percent'];
+                                        return '';
+                                    };
+                                    ?>
                                     <?php if (empty($ada_splits)): ?>
                                         <tr class="kg-ada-split-row">
-                                            <td><input type="text" class="kg-ada-split-addr" value="" placeholder="addr1… or addr_test1…" style="width:100%; font-family: ui-monospace, monospace;"></td>
-                                            <td><input type="number" class="kg-ada-split-pct" value="" min="0.01" max="100" step="0.01" style="width:90px;"> %</td>
-                                            <td><input type="text" class="kg-ada-split-label" value="" placeholder="treasury" style="width:100%;"></td>
+                                            <td><input type="text" class="kg-ada-split-addr" value="" placeholder="addr1… or addr_test1…" autocomplete="off" style="width:100%; font-family: ui-monospace, monospace;"></td>
+                                            <td><input type="number" class="kg-ada-split-pct" value="" min="0.01" max="100" step="0.01" autocomplete="off" style="width:90px;"> %</td>
+                                            <td><input type="text" class="kg-ada-split-label" value="" placeholder="treasury" autocomplete="off" style="width:100%;"></td>
                                             <td><button type="button" class="button button-small kg-ada-split-remove" title="Remove row">&times;</button></td>
                                         </tr>
                                     <?php else: foreach ($ada_splits as $row): ?>
                                         <tr class="kg-ada-split-row">
-                                            <td><input type="text" class="kg-ada-split-addr" value="<?php echo esc_attr($row['address'] ?? ''); ?>" placeholder="addr1… or addr_test1…" style="width:100%; font-family: ui-monospace, monospace;"></td>
-                                            <td><input type="number" class="kg-ada-split-pct" value="<?php echo esc_attr(isset($row['percent']) ? (float) $row['percent'] : ''); ?>" min="0.01" max="100" step="0.01" style="width:90px;"> %</td>
-                                            <td><input type="text" class="kg-ada-split-label" value="<?php echo esc_attr($row['label'] ?? ''); ?>" placeholder="treasury" style="width:100%;"></td>
+                                            <td><input type="text" class="kg-ada-split-addr" value="<?php echo esc_attr($row['address'] ?? ''); ?>" placeholder="addr1… or addr_test1…" autocomplete="off" style="width:100%; font-family: ui-monospace, monospace;"></td>
+                                            <td><input type="number" class="kg-ada-split-pct" value="<?php echo esc_attr($row_pct_display($row)); ?>" min="0.01" max="100" step="0.01" autocomplete="off" style="width:90px;"> %</td>
+                                            <td><input type="text" class="kg-ada-split-label" value="<?php echo esc_attr($row['label'] ?? ''); ?>" placeholder="treasury" autocomplete="off" style="width:100%;"></td>
                                             <td><button type="button" class="button button-small kg-ada-split-remove" title="Remove row">&times;</button></td>
                                         </tr>
                                     <?php endforeach; endif; ?>

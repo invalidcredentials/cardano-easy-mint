@@ -79,7 +79,7 @@ class AltPayAdminController {
             'cardano-altpay-admin',
             $base . 'assets/altpay/altpay-admin.js',
             ['jquery'],
-            '0.2.0',
+            '0.2.1',
             true
         );
         wp_localize_script('cardano-altpay-admin', 'cardanoAltPay', [
