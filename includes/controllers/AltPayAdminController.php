@@ -79,7 +79,7 @@ class AltPayAdminController {
             'cardano-altpay-admin',
             $base . 'assets/altpay/altpay-admin.js',
             ['jquery'],
-            '0.1.0',
+            '0.2.0',
             true
         );
         wp_localize_script('cardano-altpay-admin', 'cardanoAltPay', [
@@ -91,6 +91,11 @@ class AltPayAdminController {
                 'eth' => (string) get_option('cardano_mint_altpay_eth_sweep_address', ''),
                 'sol' => (string) get_option('cardano_mint_altpay_sol_sweep_address', ''),
                 'ada' => (string) get_option('cardano_mint_altpay_ada_sweep_address', ''),
+            ],
+            'adaSweepSplits' => [
+                'enabled' => get_option('cardano_mint_altpay_ada_sweep_splits_enabled', '0') === '1',
+                'rows'    => self::adaSplitsForJs(),
+                'maxLovelacePerTx' => '1000000000', // 1,000 ADA hard cap, BigInt-friendly string
             ],
         ]);
         wp_enqueue_style(
@@ -322,17 +327,19 @@ class AltPayAdminController {
         $walletId = (int) ($_POST['wallet_id'] ?? 0);
         $toAddr   = sanitize_text_field($_POST['to_address'] ?? '');
         $amount   = preg_replace('/[^0-9]/', '', (string) ($_POST['amount_minor'] ?? ''));
+        $splits   = !empty($_POST['splits']);
 
         if ($walletId <= 0)   wp_send_json_error(['message' => 'wallet_id required']);
-        if ($toAddr === '')   wp_send_json_error(['message' => 'destination required']);
         if ($amount === '' || $amount === '0') wp_send_json_error(['message' => 'amount_minor required']);
+        // Destination is only required when NOT splitting (splits define their own).
+        if (!$splits && $toAddr === '') wp_send_json_error(['message' => 'destination required']);
 
         // ADA send goes through Anvil's transactions/build + transactions/submit
         // pair, signed locally with the wallet's stored payment_skey_extended.
-        // BTC/ETH/SOL stay on the existing AltPayService path.
+        // BTC/ETH/SOL stay on the existing AltPayService path (no splits there).
         $wallet = ChainWalletModel::get($walletId);
         if ($wallet && $wallet['chain'] === 'ada') {
-            self::sendFromAdaWallet($walletId, $toAddr, $amount);
+            self::sendFromAdaWallet($walletId, $toAddr, $amount, $splits);
             return;
         }
 
@@ -353,7 +360,7 @@ class AltPayAdminController {
      * leaving ~1 ADA in the change output. We surface Anvil's error if it
      * fails so the operator sees the real reason.
      */
-    private static function sendFromAdaWallet(int $walletId, string $toAddr, string $amountLovelace): void {
+    private static function sendFromAdaWallet(int $walletId, string $toAddr, string $amountLovelace, bool $useSplits = false): void {
         $wallet = ChainWalletModel::get($walletId);
         if (!$wallet || $wallet['chain'] !== 'ada') {
             wp_send_json_error(['message' => 'not an ada wallet']);
@@ -369,14 +376,61 @@ class AltPayAdminController {
         $lovelace = (int) $amountLovelace;
         if ($lovelace <= 0) wp_send_json_error(['message' => 'amount must be positive lovelace']);
 
+        // Hard cap: never send more than ADA_SEND_MAX_LOVELACE in a single tx.
+        // Applies whether or not splits are active. Operator drains a large
+        // wallet over multiple sweeps.
+        if ($lovelace > self::ADA_SEND_MAX_LOVELACE) {
+            wp_send_json_error([
+                'message' => sprintf(
+                    'Per-transaction cap is %s ADA. Reduce the amount and sweep again.',
+                    number_format(self::ADA_SEND_MAX_LOVELACE / 1000000, 0)
+                ),
+            ]);
+        }
+
+        // Build outputs. Splits path produces N entries summing to <= $lovelace
+        // (sub-lovelace dust from rounding stays in the change output).
+        // Single-output path is the original one-row send.
+        $outputs = [];
+        $dest_summary = $toAddr;
+        if ($useSplits) {
+            if (get_option('cardano_mint_altpay_ada_sweep_splits_enabled', '0') !== '1') {
+                wp_send_json_error(['message' => 'split payouts are not enabled in settings']);
+            }
+            $rows = self::adaSplitsLoad();
+            if (empty($rows)) wp_send_json_error(['message' => 'no split rows configured']);
+            // Re-validate the saved rows in case they were edited via direct DB / option access.
+            $sum_bps = array_sum(array_column($rows, 'percent_bps'));
+            if ($sum_bps !== 10000) wp_send_json_error(['message' => 'saved splits no longer sum to 100% — re-save settings']);
+
+            foreach ($rows as $r) {
+                // intdiv keeps math exact; PHP int is 64-bit on all our targets.
+                // 1,000 ADA cap means $lovelace * 10000 fits comfortably in int64.
+                $share = intdiv($lovelace * $r['percent_bps'], 10000);
+                if ($share < self::ADA_MIN_UTXO_LOVELACE) {
+                    wp_send_json_error([
+                        'message' => sprintf(
+                            'Share for %s would be %s lovelace, below the %s lovelace min-UTxO floor. Increase the sweep amount.',
+                            $r['address'],
+                            number_format($share),
+                            number_format(self::ADA_MIN_UTXO_LOVELACE)
+                        ),
+                    ]);
+                }
+                $outputs[] = ['address' => $r['address'], 'lovelace' => $share];
+            }
+            $dest_summary = sprintf('%d split outputs', count($outputs));
+        } else {
+            if ($toAddr === '') wp_send_json_error(['message' => 'destination required']);
+            $outputs[] = ['address' => $toAddr, 'lovelace' => $lovelace];
+        }
+
         // Step 1: build via Anvil. Auto UTxO selection from the source
         // address (which is also the change address — any unspent UTxO
-        // beyond the output + fee comes back to the source).
+        // beyond the outputs + fee comes back to the source).
         $build_request = [
             'changeAddress' => $source_address,
-            'outputs'       => [
-                ['address' => $toAddr, 'lovelace' => $lovelace],
-            ],
+            'outputs'       => $outputs,
         ];
 
         $build = \CardanoMintPay\Helpers\AnvilAPI::call('transactions/build', $build_request, 'mint');
@@ -422,8 +476,10 @@ class AltPayAdminController {
             'tx_hash'        => $tx_hash,
             'source_index'   => 0, // ADA wallet is single-address; surface 0 so existing JS UX works
             'source_address' => $source_address,
-            'dest_address'   => $toAddr,
+            'dest_address'   => $dest_summary,
             'amount_minor'   => (string) $lovelace,
+            'outputs'        => $outputs,
+            'split'          => $useSplits,
         ]);
     }
 
@@ -453,6 +509,30 @@ class AltPayAdminController {
         check_ajax_referer(self::NONCE, 'nonce');
         if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'forbidden']);
 
+        // Splits validation runs first so we don't half-save when invalid.
+        $splits_enabled = isset($_POST['ada_sweep_splits_enabled']) ? '1' : '0';
+        $splits_payload = isset($_POST['ada_sweep_splits']) ? json_decode(wp_unslash((string) $_POST['ada_sweep_splits']), true) : [];
+        $splits_normalized = [];
+        if ($splits_enabled === '1') {
+            $parsed = self::adaSplitsParse($splits_payload);
+            if (is_wp_error($parsed)) wp_send_json_error(['message' => $parsed->get_error_message()]);
+            $splits_normalized = $parsed;
+        } elseif (is_array($splits_payload)) {
+            // Toggle off but rows present: still parse-best-effort so the editor
+            // can be re-enabled later without retyping. Skip strict checks.
+            foreach ($splits_payload as $row) {
+                $addr = isset($row['address']) ? trim((string) $row['address']) : '';
+                $pct  = isset($row['percent']) ? (float) $row['percent'] : 0.0;
+                $label = isset($row['label']) ? sanitize_text_field((string) $row['label']) : '';
+                if ($addr === '' && $pct <= 0) continue;
+                $splits_normalized[] = [
+                    'address'     => $addr,
+                    'percent_bps' => (int) round($pct * 100),
+                    'label'       => $label,
+                ];
+            }
+        }
+
         $opts = [
             'cardano_mint_altpay_enabled'                 => isset($_POST['enabled']) ? '1' : '0',
             'cardano_mint_service_fee_ada'                => max(2, min(20, (int) ($_POST['service_fee_ada'] ?? 5))),
@@ -472,6 +552,8 @@ class AltPayAdminController {
             'cardano_mint_altpay_blockfrost_mainnet'      => sanitize_text_field($_POST['blockfrost_mainnet'] ?? ''),
             'cardano_mint_altpay_blockfrost_preprod'      => sanitize_text_field($_POST['blockfrost_preprod'] ?? ''),
             'cardano_mint_altpay_blockfrost_preview'      => sanitize_text_field($_POST['blockfrost_preview'] ?? ''),
+            'cardano_mint_altpay_ada_sweep_splits_enabled' => $splits_enabled,
+            'cardano_mint_altpay_ada_sweep_splits'         => wp_json_encode(array_values($splits_normalized)),
         ];
         foreach ($opts as $k => $v) update_option($k, $v);
 
@@ -486,6 +568,92 @@ class AltPayAdminController {
         if (!$mn) wp_send_json_error(['message' => 'mnemonic no longer available — generate a fresh wallet to reveal again']);
         delete_transient('cardano_altpay_mnemonic_' . $id);
         wp_send_json_success(['mnemonic' => $mn]);
+    }
+
+    /* ─── ADA sweep splits ──────────────────────────────────────────── */
+
+    /**
+     * Hard cap per ADA sweep transaction. Splits or single-output, the
+     * total outgoing lovelace must not exceed this. 1,000 ADA keeps any
+     * single tx's blast radius small while we run the splits feature on
+     * live funds.
+     */
+    const ADA_SEND_MAX_LOVELACE = 1000000000; // 1,000 ADA
+
+    /** Cardano protocol min-UTxO floor for an ADA-only output (~1 ADA). */
+    const ADA_MIN_UTXO_LOVELACE = 1000000;
+
+    /**
+     * Returns the saved splits as a normalized array of
+     *   [ ['address' => 'addr1…', 'percent_bps' => 6000, 'label' => 'treasury'], … ]
+     * Percent stored in basis points (10000 = 100.00%) so we can sum
+     * exactly without float drift.
+     */
+    public static function adaSplitsLoad(): array {
+        $raw = (string) get_option('cardano_mint_altpay_ada_sweep_splits', '[]');
+        $arr = json_decode($raw, true);
+        if (!is_array($arr)) return [];
+        $out = [];
+        foreach ($arr as $row) {
+            if (!is_array($row)) continue;
+            $addr = isset($row['address']) ? (string) $row['address'] : '';
+            $bps  = isset($row['percent_bps']) ? (int) $row['percent_bps'] : 0;
+            $label = isset($row['label']) ? (string) $row['label'] : '';
+            if ($addr === '' || $bps <= 0) continue;
+            $out[] = ['address' => $addr, 'percent_bps' => $bps, 'label' => $label];
+        }
+        return $out;
+    }
+
+    /** JS-friendly view: percent as decimal (e.g. 60.00) instead of bps. */
+    public static function adaSplitsForJs(): array {
+        $rows = self::adaSplitsLoad();
+        return array_map(function ($r) {
+            return [
+                'address' => $r['address'],
+                'percent' => round($r['percent_bps'] / 100, 2),
+                'label'   => $r['label'],
+            ];
+        }, $rows);
+    }
+
+    /**
+     * Parse a posted splits payload into the normalized [{address, percent_bps, label}] form.
+     * Returns array on success, WP_Error on validation failure. Does NOT touch options.
+     *
+     * Validation:
+     *  - At least 2 rows
+     *  - Every address starts with addr1 (mainnet) or addr_test1 (testnet); we don't
+     *    full-bech32-check here, Anvil's build endpoint will reject malformed addrs anyway.
+     *  - Each percent in (0, 100], two decimal precision, stored as bps
+     *  - Sum of bps must equal exactly 10000 (100.00%)
+     */
+    public static function adaSplitsParse($posted) {
+        if (!is_array($posted)) return new \WP_Error('splits_invalid', 'Splits payload must be an array.');
+        $rows = [];
+        $sum_bps = 0;
+        foreach ($posted as $i => $row) {
+            $addr = isset($row['address']) ? trim((string) $row['address']) : '';
+            $pct  = isset($row['percent']) ? (float) $row['percent'] : 0.0;
+            $label = isset($row['label']) ? sanitize_text_field((string) $row['label']) : '';
+
+            if ($addr === '') return new \WP_Error('splits_invalid', sprintf('Row %d is missing an address.', $i + 1));
+            if (strpos($addr, 'addr1') !== 0 && strpos($addr, 'addr_test1') !== 0) {
+                return new \WP_Error('splits_invalid', sprintf('Row %d address must start with addr1 or addr_test1.', $i + 1));
+            }
+            if ($pct <= 0 || $pct > 100) {
+                return new \WP_Error('splits_invalid', sprintf('Row %d percent must be > 0 and <= 100.', $i + 1));
+            }
+            $bps = (int) round($pct * 100); // 60.00 -> 6000
+            if ($bps <= 0) return new \WP_Error('splits_invalid', sprintf('Row %d percent rounds to 0.', $i + 1));
+            $sum_bps += $bps;
+            $rows[] = ['address' => $addr, 'percent_bps' => $bps, 'label' => $label];
+        }
+        if (count($rows) < 2) return new \WP_Error('splits_invalid', 'Need at least two split rows. Disable the toggle for a single destination.');
+        if ($sum_bps !== 10000) {
+            return new \WP_Error('splits_invalid', sprintf('Percentages must sum to exactly 100.00%% (got %.2f%%).', $sum_bps / 100));
+        }
+        return $rows;
     }
 
     /* ─── Helpers used by views ─────────────────────────────────────── */
