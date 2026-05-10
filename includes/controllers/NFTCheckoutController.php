@@ -161,6 +161,55 @@ class NFTCheckoutController {
             }
         }
 
+        // On-ramp (Guardarian fiat-to-ADA). Enqueued only when the operator
+        // turned the feature on AND a Guardarian API key is configured —
+        // otherwise the existing checkout is byte-for-byte unchanged.
+        if (
+            get_option('cardano_mint_onramp_enabled', '0') === '1'
+            && class_exists('CardanoMintPay\\Onramp\\GuardarianClient')
+            && \CardanoMintPay\Onramp\GuardarianClient::isConfigured()
+        ) {
+            $or_css_path = plugin_dir_path(__FILE__) . '../../assets/onramp/onramp-modal.css';
+            $or_js_path  = plugin_dir_path(__FILE__) . '../../assets/onramp/onramp-modal.js';
+            wp_enqueue_style(
+                'cardano-onramp-modal-css',
+                plugin_dir_url(__FILE__) . '../../assets/onramp/onramp-modal.css',
+                [],
+                file_exists($or_css_path) ? filemtime($or_css_path) : '0.1.0'
+            );
+            wp_enqueue_script(
+                'cardano-onramp-modal-js',
+                plugin_dir_url(__FILE__) . '../../assets/onramp/onramp-modal.js',
+                [],
+                file_exists($or_js_path) ? filemtime($or_js_path) : '0.1.0',
+                true
+            );
+            // Default network mirrors the AltPay convention. The mint shortcode
+            // can override it per-call by passing a customer wallet on a
+            // different network — the modal trusts the address it's given.
+            $anvil_url = strtolower((string) get_option('cardano_mint_anvil_api_url', ''));
+            $is_mainnet = (
+                strpos($anvil_url, 'preprod') === false
+                && strpos($anvil_url, 'preview') === false
+                && strpos($anvil_url, 'sancho') === false
+            );
+            wp_localize_script('cardano-onramp-modal-js', 'cardanoOnrampPublic', [
+                'restRoot'       => esc_url_raw(rest_url('cardano-mint/v1/')),
+                'nonce'          => wp_create_nonce('wp_rest'),
+                'defaultNetwork' => $is_mainnet ? 'mainnet' : 'preprod',
+                'feeBufferAda'   => \CardanoMintPay\Onramp\GuardarianService::feeBufferAda(),
+                'presetPayout'   => \CardanoMintPay\Onramp\GuardarianService::isPresetPayoutEnabled(),
+                // Partner API key is exposed to the frontend on purpose:
+                // Guardarian's documented iframe surface is the calculator
+                // widget at guardarian.com/calculator/v1, which takes
+                // partner_api_token as a query param. Same security model
+                // as a Stripe publishable key — the partner key only has
+                // exchange-creation scope and is rate-limited per IP.
+                'partnerApiKey'  => \CardanoMintPay\Onramp\GuardarianClient::apiKey(),
+                'widgetBaseUrl'  => 'https://guardarian.com/calculator/v1',
+            ]);
+        }
+
         // Note: Script and localization are handled by the main plugin file
 
         // Prevent WordPress from adding auto-paragraphs to our shortcode output

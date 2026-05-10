@@ -175,6 +175,81 @@ $nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
                     <input type="hidden" id="altpay-chain"      value="ada">
                     <?php endif; ?>
 
+                    <?php
+                    $onramp_enabled = (
+                        get_option('cardano_mint_onramp_enabled', '0') === '1'
+                        && class_exists('CardanoMintPay\\Onramp\\GuardarianClient')
+                        && \CardanoMintPay\Onramp\GuardarianClient::isConfigured()
+                    );
+                    if ($onramp_enabled):
+                        $onramp_amount = isset($nft_price) && $nft_price > 0 ? (int) ceil($nft_price + 5) : 100;
+                    ?>
+                    <div class="kg-onramp-cta-wrap" id="kg-onramp-cta-wrap" hidden style="margin-top: 14px;">
+                        <p style="margin: 0 0 8px 0; font-size: 13px; color: #9b99a6;">Need ADA?</p>
+                        <button type="button"
+                                id="kg-onramp-cta"
+                                class="kg-onramp-cta"
+                                data-onramp-amount="<?php echo esc_attr($onramp_amount); ?>">
+                            <span class="kg-onramp-cta__icon" aria-hidden="true">
+                                <!-- credit card glyph -->
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>
+                                </svg>
+                            </span>
+                            Buy ADA with card
+                        </button>
+                        <p style="margin: 6px 0 0 0; font-size: 11px; color: #88838f; line-height: 1.4;">
+                            Funds land in your connected wallet. You'll still mint with ADA — minimum ~<?php echo (int) \CardanoMintPay\Onramp\GuardarianService::feeBufferAda(); ?> ADA needed in the wallet to cover the mint network fee.
+                        </p>
+                    </div>
+                    <script>
+                    /* Reveal the on-ramp CTA only after a Cardano wallet is
+                       connected (we need the address as the payout target).
+                       Watches for the existing wallet-address-display flip. */
+                    (function () {
+                        var ctaWrap = document.getElementById('kg-onramp-cta-wrap');
+                        var addrEl  = document.getElementById('connected-wallet-address');
+                        var addrDisplay = document.getElementById('wallet-address-display');
+                        if (!ctaWrap || !addrEl) return;
+
+                        function tryReveal() {
+                            var addr = (addrEl.textContent || '').trim();
+                            if (!addr || (addr.indexOf('addr1') !== 0 && addr.indexOf('addr_test1') !== 0)) {
+                                ctaWrap.setAttribute('hidden', '');
+                                return;
+                            }
+                            ctaWrap.removeAttribute('hidden');
+                        }
+                        // Watch the display container for visibility flips and address mutations.
+                        var observer = new MutationObserver(tryReveal);
+                        if (addrDisplay) observer.observe(addrDisplay, { attributes: true, attributeFilter: ['style'] });
+                        observer.observe(addrEl, { childList: true, characterData: true, subtree: true });
+                        // Initial check in case wallet was already connected on page load.
+                        setTimeout(tryReveal, 50);
+
+                        var btn = document.getElementById('kg-onramp-cta');
+                        if (btn) btn.addEventListener('click', function () {
+                            var addr = (addrEl.textContent || '').trim();
+                            if (!addr || typeof window.KGOnramp !== 'object') return;
+                            var picker = document.getElementById('altpay-picker');
+                            var mintId = picker ? parseInt(picker.getAttribute('data-mint-id') || '0', 10) || null : null;
+                            var defaultAmount = parseInt(btn.getAttribute('data-onramp-amount') || '100', 10) || 100;
+                            window.KGOnramp.open({
+                                amountUsd:                defaultAmount,
+                                customerCardanoAddress:   addr,
+                                mintId:                   mintId,
+                                onComplete: function () {
+                                    /* Wallet is funded — surface the existing
+                                       Continue button if it's still hidden. */
+                                    var cont = document.getElementById('proceed-to-confirm');
+                                    if (cont) cont.style.display = '';
+                                }
+                            });
+                        });
+                    })();
+                    </script>
+                    <?php endif; ?>
+
                     <button type="button" class="btn-next" id="proceed-to-confirm" style="display: none;">Continue to Mint</button>
                 </div>
 

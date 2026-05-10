@@ -2,7 +2,7 @@
 /*
 Plugin Name: Cardano Minting
 Description: NFT minting for Cardano sites via the Anvil API. Alt-chain payments (BTC / ETH / SOL / ADA), batch quantity (1-5 per tx), wallet-network gate, optional 2FA gate on the Payment Wallets admin page, and dashboard send-funds via Anvil + Blockfrost balance lookups for ADA custodial wallets.
-Version: 4.1.0
+Version: 4.2.0
 Author: Pb
 Text Domain: cardano-minting
 */
@@ -54,6 +54,18 @@ require_once plugin_dir_path(__FILE__) . 'includes/models/ChainInvoiceModel.php'
 require_once plugin_dir_path(__FILE__) . 'includes/models/ChainTxLogModel.php';
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/AltPayAdminController.php';
 
+// Fiat-to-ADA on-ramp (Guardarian). Sibling subsystem to AltPay: customer
+// buys ADA with a credit card; ADA lands directly in their own connected
+// Cardano wallet; the existing mint flow takes over from there. No operator
+// wallet involvement, no chargeback exposure on this side.
+require_once plugin_dir_path(__FILE__) . 'includes/onramp/OnrampInstaller.php';
+require_once plugin_dir_path(__FILE__) . 'includes/onramp/GuardarianClient.php';
+require_once plugin_dir_path(__FILE__) . 'includes/onramp/GuardarianService.php';
+require_once plugin_dir_path(__FILE__) . 'includes/models/OnrampSessionModel.php';
+require_once plugin_dir_path(__FILE__) . 'includes/controllers/OnrampPublicController.php';
+require_once plugin_dir_path(__FILE__) . 'includes/controllers/OnrampWebhookController.php';
+require_once plugin_dir_path(__FILE__) . 'includes/controllers/OnrampAdminController.php';
+
 // Register activation hook for database tables
 register_activation_hook(__FILE__, 'cardanomint_activate');
 
@@ -72,6 +84,9 @@ function cardanomint_activate() {
 
     // Alt-chain payments schema (BTC/ETH/SOL).
     CardanoMintPay\AltPay\AltPayInstaller::install();
+
+    // On-ramp sessions schema (Guardarian fiat-to-ADA).
+    CardanoMintPay\Onramp\OnrampInstaller::install();
 
     // Fix binary permissions on Linux
     cardanomint_fix_binary_permissions();
@@ -236,6 +251,21 @@ add_action('init', function() {
 
     if (class_exists('CardanoMintPay\\Controllers\\AltPayAdminController')) {
         CardanoMintPay\Controllers\AltPayAdminController::register();
+    }
+
+    // On-ramp: just-in-time install + register the three controllers
+    // (public REST, webhook receiver, admin AJAX).
+    if (class_exists('CardanoMintPay\\Onramp\\OnrampInstaller')) {
+        CardanoMintPay\Onramp\OnrampInstaller::maybe_install();
+    }
+    if (class_exists('CardanoMintPay\\Controllers\\OnrampPublicController')) {
+        CardanoMintPay\Controllers\OnrampPublicController::register();
+    }
+    if (class_exists('CardanoMintPay\\Controllers\\OnrampWebhookController')) {
+        CardanoMintPay\Controllers\OnrampWebhookController::register();
+    }
+    if (class_exists('CardanoMintPay\\Controllers\\OnrampAdminController')) {
+        CardanoMintPay\Controllers\OnrampAdminController::register();
     }
 });
 
