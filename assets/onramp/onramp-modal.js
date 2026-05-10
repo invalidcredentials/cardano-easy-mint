@@ -554,14 +554,16 @@
             src: widgetUrl,
             allow: 'payment *; clipboard-write',
             referrerpolicy: 'no-referrer',
-            // allow-top-navigation-by-user-activation is required: when
-            // the customer hits "Buy" and payment clears, Guardarian's
-            // checkout SPA navigates the TOP frame to redirects.successful.
-            // Without this flag the redirect throws a SecurityError and
-            // the user is stranded on the success screen with no exit.
-            // -by-user-activation gates the nav on a real click event so
-            // the iframe can't silently jack the parent page.
-            sandbox: 'allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-storage-access-by-user-activation allow-top-navigation-by-user-activation'
+            // Guardarian's checkout SPA navigates the TOP frame to
+            // redirects.successful AFTER an async card-processing API
+            // call resolves (inside a setTimeout / XHR callback), not
+            // during a real click. By that time Chromium has expired the
+            // "user activation" token, so -by-user-activation throws a
+            // SecurityError. We have to use plain allow-top-navigation
+            // here. Slightly less locked-down than ideal, but Guardarian
+            // is the PSP we're explicitly trusting, and this is the
+            // standard pattern for embedded checkout iframes.
+            sandbox: 'allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-storage-access-by-user-activation allow-top-navigation'
         });
         iframe.addEventListener('load', function () {
             loader.classList.add('is-hidden');
