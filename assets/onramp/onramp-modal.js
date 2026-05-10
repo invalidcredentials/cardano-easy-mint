@@ -49,6 +49,70 @@
     };
     window.KGOnramp = KGOnramp;
 
+    // Auto-resume after Guardarian's success redirect. Guardarian navigates
+    // the top frame back to redirects.successful (set to <mint-url>?kg-onramp-return=
+    // <partner_link_id> below); on landing, we look up the session, scrub
+    // the query param so refreshes don't re-fire, and open the modal
+    // straight into the "waiting for ADA" view with Blockfrost polling.
+    if (typeof window !== 'undefined' && window.location) {
+        var qp = new URLSearchParams(window.location.search);
+        var pendingLink = qp.get('kg-onramp-return');
+        if (pendingLink) {
+            qp.delete('kg-onramp-return');
+            var newSearch = qp.toString();
+            var cleanUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
+            try { window.history.replaceState({}, '', cleanUrl); } catch (_) {}
+            // Defer until DOM is ready so we can mount the overlay.
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', function () { resumeFromRedirect(pendingLink); });
+            } else {
+                resumeFromRedirect(pendingLink);
+            }
+        }
+    }
+
+    function resumeFromRedirect(partnerLinkId) {
+        // Fetch the session to recover the payout address; we need it for
+        // Blockfrost polling and don't want to require a wallet reconnect
+        // just to surface the waiting view.
+        api('onramp/sessions/' + encodeURIComponent(partnerLinkId))
+            .then(function (s) {
+                var address = s.payout_address;
+                if (!address) return;
+                // Mount a synthetic state matching what createSession would
+                // have produced, then jump straight to renderWaiting.
+                if (state) closeModal();
+                state = {
+                    opts: { customerCardanoAddress: address, network: DEFAULT_NETWORK },
+                    phase: null,
+                    shell: null,
+                    session: {
+                        partner_link_id:    partnerLinkId,
+                        provider_tx_id:     null,
+                        to_amount_estimated: s.to_amount_estimated,
+                        from_amount:        s.from_amount,
+                        from_currency:      s.from_currency,
+                    },
+                    initialLovelace: 0,
+                    statusPoll: null,
+                    balancePoll: null,
+                    balanceDeadline: null,
+                    iframeAbandonOk: true,
+                };
+                state.shell = buildShell();
+                renderWaiting(s);
+                // Capture current balance as baseline so the +ADA delta
+                // we display is the funds that arrived from this purchase.
+                api('onramp/wallet-balance?address=' + encodeURIComponent(address) + '&network=' + encodeURIComponent(DEFAULT_NETWORK))
+                    .then(function (bal) { state.initialLovelace = parseInt(bal.lovelace, 10) || 0; })
+                    .catch(function () {});
+                startBalancePolling();
+            })
+            .catch(function (e) {
+                console.warn('[KGOnramp] resume failed:', e && e.message);
+            });
+    }
+
     // ─── DOM helpers ─────────────────────────────────────────────────
 
     function el(tag, attrs, children) {
@@ -490,10 +554,14 @@
             src: widgetUrl,
             allow: 'payment *; clipboard-write',
             referrerpolicy: 'no-referrer',
-            // Widget handles its own in-iframe navigation, so the strict
-            // sandbox is fine. Top-frame navigation stays blocked, modal
-            // stays alive across the whole flow.
-            sandbox: 'allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-storage-access-by-user-activation'
+            // allow-top-navigation-by-user-activation is required: when
+            // the customer hits "Buy" and payment clears, Guardarian's
+            // checkout SPA navigates the TOP frame to redirects.successful.
+            // Without this flag the redirect throws a SecurityError and
+            // the user is stranded on the success screen with no exit.
+            // -by-user-activation gates the nav on a real click event so
+            // the iframe can't silently jack the parent page.
+            sandbox: 'allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-storage-access-by-user-activation allow-top-navigation-by-user-activation'
         });
         iframe.addEventListener('load', function () {
             loader.classList.add('is-hidden');
@@ -564,10 +632,17 @@
             params.skip_choose_payout_address = 'true';
         }
 
-        var ret = window.location.href.split('#')[0];
-        params.redirects_successful = ret;
-        params.redirects_cancelled  = ret;
-        params.redirects_failed     = ret;
+        // Tag the success URL with the partner link id so when Guardarian
+        // navigates the top frame back here after payment, the auto-resume
+        // block at the top of this file picks it up and re-opens the modal
+        // straight into the "waiting for ADA" view (Blockfrost polling).
+        var baseRet = window.location.href.split('#')[0].split('?')[0];
+        var carryOver = window.location.search.replace(/^\?/, '');
+        var partnerLinkId = state.session && state.session.partner_link_id ? state.session.partner_link_id : '';
+        var successQs = (carryOver ? carryOver + '&' : '') + 'kg-onramp-return=' + encodeURIComponent(partnerLinkId);
+        params.redirects_successful = baseRet + '?' + successQs;
+        params.redirects_cancelled  = baseRet + (carryOver ? '?' + carryOver : '');
+        params.redirects_failed     = baseRet + (carryOver ? '?' + carryOver : '');
 
         var qs = Object.keys(params)
             .filter(function (k) { return params[k] !== '' && params[k] != null; })
