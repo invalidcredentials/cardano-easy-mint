@@ -1,0 +1,451 @@
+/*
+ * onramp-modal.css
+ *
+ * KG-themed modal that wraps the Guardarian hosted checkout iframe and
+ * the pre-flight / waiting / success states around it.
+ *
+ * Color tokens mirror the rest of the KG-styled mint surface
+ *   --kg-bg-deep / --kg-cyan / --kg-text from the theme
+ *   --altpay-* fallback values from the existing checkout palette so the
+ *   modal still looks right when the theme tokens aren't loaded (for
+ *   white-label or stripped-theme contexts).
+ *
+ * Layout strategy:
+ *   - Desktop:  centered card 420px wide; iframe height adapts to content
+ *   - Tablet:   wider card, ~520px
+ *   - Mobile:   full-screen takeover, iframe consumes the remaining height
+ */
+
+.kg-onramp-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(7, 10, 16, 0.78);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease;
+}
+.kg-onramp-overlay.is-open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.kg-onramp-modal {
+    width: 100%;
+    max-width: 460px;
+    max-height: calc(100vh - 32px);
+    /* dvh accounts for iOS Safari's mobile toolbar collapsing; falls back to vh */
+    max-height: calc(100dvh - 32px);
+    background: var(--kg-bg-base, #0f1923);
+    border: 1px solid var(--kg-border, rgba(255, 255, 255, 0.08));
+    border-radius: 16px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: var(--kg-text, #c5cdd8);
+    font-family: var(--font-body, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+    transform: translateY(8px);
+    transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.kg-onramp-overlay.is-open .kg-onramp-modal { transform: translateY(0); }
+
+.kg-onramp-modal--wide  { max-width: 520px; }
+.kg-onramp-modal--iframe { max-width: 480px; }
+
+.kg-onramp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--kg-border, rgba(255, 255, 255, 0.08));
+    background: var(--kg-bg-raised, #141e2b);
+    flex-shrink: 0;
+}
+.kg-onramp-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--kg-text-bright, #e0e6ed);
+    margin: 0;
+    letter-spacing: 0.01em;
+    line-height: 1.2;
+}
+.kg-onramp-subtitle {
+    font-size: 12px;
+    color: var(--kg-text-muted, #6b7b8d);
+    margin: 4px 0 0 0;
+    line-height: 1.3;
+}
+.kg-onramp-close {
+    background: transparent;
+    border: none;
+    color: var(--kg-text-muted, #6b7b8d);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 8px;
+    line-height: 1;
+    font-size: 22px;
+    transition: background 150ms ease, color 150ms ease;
+}
+.kg-onramp-close:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--kg-text-bright, #e0e6ed);
+}
+
+.kg-onramp-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+.kg-onramp-body--iframe { padding: 0; overflow: hidden; }
+
+/* ── Pre-flight quote view ───────────────────────────────────────── */
+
+.kg-onramp-quote {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.kg-onramp-quote__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: var(--kg-bg-deep, #0b0e17);
+    border: 1px solid var(--kg-border, rgba(255, 255, 255, 0.06));
+    border-radius: 10px;
+}
+.kg-onramp-quote__label {
+    font-size: 12px;
+    color: var(--kg-text-muted, #6b7b8d);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+.kg-onramp-quote__value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--kg-text-bright, #e0e6ed);
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
+}
+.kg-onramp-quote__value--accent {
+    color: var(--kg-cyan, #00e5cc);
+}
+
+.kg-onramp-amount-input {
+    display: flex;
+    align-items: center;
+    background: var(--kg-bg-deep, #0b0e17);
+    border: 1px solid var(--kg-border, rgba(255, 255, 255, 0.06));
+    border-radius: 10px;
+    padding: 4px 14px 4px 16px;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.kg-onramp-amount-input:focus-within {
+    border-color: var(--kg-cyan, #00e5cc);
+    box-shadow: 0 0 0 3px var(--kg-cyan-glow, rgba(0, 229, 204, 0.15));
+}
+.kg-onramp-amount-input__currency {
+    font-size: 18px;
+    color: var(--kg-text-muted, #6b7b8d);
+    font-weight: 600;
+    margin-right: 8px;
+}
+.kg-onramp-amount-input input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--kg-text-bright, #e0e6ed);
+    font-size: 24px;
+    font-weight: 700;
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
+    padding: 12px 0;
+    width: 100%;
+    -moz-appearance: textfield;
+}
+.kg-onramp-amount-input input::-webkit-outer-spin-button,
+.kg-onramp-amount-input input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.kg-onramp-amount-input__suffix {
+    font-size: 12px;
+    color: var(--kg-text-muted, #6b7b8d);
+    margin-left: 8px;
+    white-space: nowrap;
+}
+
+.kg-onramp-help {
+    font-size: 12px;
+    color: var(--kg-text-muted, #6b7b8d);
+    line-height: 1.5;
+    margin: 0;
+}
+.kg-onramp-help strong { color: var(--kg-text, #c5cdd8); }
+
+.kg-onramp-error {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: #fca5a5;
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 0;
+    word-break: break-word;
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.kg-onramp-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+}
+.kg-onramp-btn {
+    flex: 1;
+    padding: 12px 18px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 150ms ease, border-color 150ms ease, color 150ms ease, transform 100ms ease;
+    line-height: 1.2;
+}
+.kg-onramp-btn:active { transform: translateY(1px); }
+.kg-onramp-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.kg-onramp-btn--primary {
+    background: var(--kg-cyan, #00e5cc);
+    color: #07151b;
+    border-color: var(--kg-cyan, #00e5cc);
+}
+.kg-onramp-btn--primary:hover:not(:disabled) {
+    background: var(--kg-cyan-dim, #00b3a0);
+    border-color: var(--kg-cyan-dim, #00b3a0);
+}
+.kg-onramp-btn--ghost {
+    background: transparent;
+    color: var(--kg-text, #c5cdd8);
+    border-color: var(--kg-border, rgba(255, 255, 255, 0.12));
+}
+.kg-onramp-btn--ghost:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--kg-text-bright, #e0e6ed);
+}
+
+/* ── Iframe view ─────────────────────────────────────────────────── */
+
+.kg-onramp-iframe-shell {
+    position: relative;
+    width: 100%;
+    background: #ffffff; /* matches Guardarian default; avoids dark flicker */
+    height: 580px;
+}
+.kg-onramp-iframe-shell iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+}
+.kg-onramp-iframe-loader {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--kg-text-muted, #6b7b8d);
+    font-size: 13px;
+    pointer-events: none;
+    background: var(--kg-bg-base, #0f1923);
+    transition: opacity 250ms ease;
+}
+.kg-onramp-iframe-loader.is-hidden { opacity: 0; }
+
+/* Status pill on top of the iframe so customer can see we're tracking
+   their session even while the Guardarian UI does its thing. */
+.kg-onramp-iframe-banner {
+    padding: 10px 16px;
+    font-size: 12px;
+    color: var(--kg-text-muted, #6b7b8d);
+    background: var(--kg-bg-raised, #141e2b);
+    border-bottom: 1px solid var(--kg-border, rgba(255, 255, 255, 0.06));
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.kg-onramp-iframe-banner__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--kg-cyan, #00e5cc);
+    box-shadow: 0 0 0 0 var(--kg-cyan-glow, rgba(0, 229, 204, 0.4));
+    animation: kgOnrampPulse 1.6s infinite;
+    flex-shrink: 0;
+}
+@keyframes kgOnrampPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(0, 229, 204, 0.45); }
+    70%  { box-shadow: 0 0 0 8px rgba(0, 229, 204, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 229, 204, 0); }
+}
+
+/* ── Waiting + success view ──────────────────────────────────────── */
+
+.kg-onramp-waiting,
+.kg-onramp-success {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+    padding: 8px 12px 4px;
+}
+.kg-onramp-waiting__spinner {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: 4px solid var(--kg-border, rgba(255, 255, 255, 0.08));
+    border-top-color: var(--kg-cyan, #00e5cc);
+    animation: kgOnrampSpin 0.9s linear infinite;
+}
+@keyframes kgOnrampSpin {
+    to { transform: rotate(360deg); }
+}
+.kg-onramp-waiting__title,
+.kg-onramp-success__title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--kg-text-bright, #e0e6ed);
+    margin: 0;
+}
+.kg-onramp-waiting__sub,
+.kg-onramp-success__sub {
+    font-size: 13px;
+    color: var(--kg-text-muted, #6b7b8d);
+    line-height: 1.5;
+    margin: 0;
+    max-width: 320px;
+}
+.kg-onramp-success__check {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--kg-cyan-glow, rgba(0, 229, 204, 0.15));
+    color: var(--kg-cyan, #00e5cc);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 700;
+}
+
+.kg-onramp-balance {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
+    color: var(--kg-text-bright, #e0e6ed);
+    font-size: 22px;
+    font-weight: 700;
+    background: var(--kg-bg-deep, #0b0e17);
+    border: 1px solid var(--kg-border, rgba(255, 255, 255, 0.06));
+    border-radius: 10px;
+    padding: 12px 16px;
+}
+.kg-onramp-balance__suffix {
+    font-size: 14px;
+    color: var(--kg-text-muted, #6b7b8d);
+    font-weight: 500;
+}
+
+/* ── Footer / security note ──────────────────────────────────────── */
+
+.kg-onramp-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--kg-border, rgba(255, 255, 255, 0.06));
+    background: var(--kg-bg-raised, #141e2b);
+    font-size: 11px;
+    color: var(--kg-text-muted, #6b7b8d);
+    text-align: center;
+    line-height: 1.4;
+    flex-shrink: 0;
+}
+.kg-onramp-footer a {
+    color: var(--kg-text-muted, #6b7b8d);
+    text-decoration: underline;
+}
+
+/* ── Scrollbar polish for the body ───────────────────────────────── */
+
+.kg-onramp-body::-webkit-scrollbar { width: 8px; }
+.kg-onramp-body::-webkit-scrollbar-track { background: transparent; }
+.kg-onramp-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+}
+
+/* ── Mobile: full-screen takeover ─────────────────────────────────── */
+
+@media (max-width: 600px) {
+    .kg-onramp-overlay { padding: 0; }
+    .kg-onramp-modal,
+    .kg-onramp-modal--wide,
+    .kg-onramp-modal--iframe {
+        max-width: 100%;
+        width: 100%;
+        height: 100vh;
+        height: 100dvh;
+        max-height: 100vh;
+        max-height: 100dvh;
+        border-radius: 0;
+        border: 0;
+    }
+    .kg-onramp-iframe-shell {
+        /* Iframe expands to fill remaining vertical space on mobile so the
+           card form is comfortable to thumb-type into. */
+        height: 100%;
+        flex: 1 1 auto;
+    }
+    .kg-onramp-body--iframe { display: flex; flex-direction: column; }
+    .kg-onramp-amount-input input { font-size: 22px; }
+}
+
+/* ── 'Buy ADA with card' button injected into mint flow ───────────── */
+
+.kg-onramp-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--kg-cyan, #00e5cc) 0%, var(--kg-cyan-dim, #00b3a0) 100%);
+    color: #07151b;
+    font-weight: 600;
+    font-size: 13px;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    line-height: 1.2;
+    transition: transform 100ms ease, filter 150ms ease;
+    font-family: inherit;
+}
+.kg-onramp-cta:hover { filter: brightness(1.05); }
+.kg-onramp-cta:active { transform: translateY(1px); }
+.kg-onramp-cta__icon {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    align-items: center;
+    justify-content: center;
+}

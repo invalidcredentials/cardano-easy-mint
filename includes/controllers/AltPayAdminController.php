@@ -117,7 +117,7 @@ class AltPayAdminController {
         }
 
         $tab = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'dashboard';
-        $allowed = ['dashboard', 'btc', 'eth', 'sol', 'ada', 'invoices', 'settings'];
+        $allowed = ['dashboard', 'btc', 'eth', 'sol', 'ada', 'onramp', 'invoices', 'settings'];
         if (!in_array($tab, $allowed, true)) $tab = 'dashboard';
         $cap = function_exists('cardanomint_altpay_capability_check')
             ? cardanomint_altpay_capability_check()

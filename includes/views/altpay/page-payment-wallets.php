@@ -17,6 +17,7 @@ $tabs = [
     'eth'       => 'ETH',
     'sol'       => 'SOL',
     'ada'       => 'ADA',
+    'onramp'    => 'Card (Guardarian)',
     'invoices'  => 'Invoices',
     'settings'  => 'Settings',
 ];
@@ -64,6 +65,8 @@ $tabs = [
         } elseif (in_array($tab, ['btc','eth','sol'], true)) {
             $chain = $tab;
             include $views_dir . 'tab-chain.php';
+        } elseif ($tab === 'onramp') {
+            \CardanoMintPay\Controllers\OnrampAdminController::renderTab();
         } elseif ($tab === 'invoices') {
             include $views_dir . 'tab-invoices.php';
         } elseif ($tab === 'settings') {
