@@ -42,6 +42,9 @@
             $tr.append('<td>' + lockBadge(p.lock_state) + '</td>');
             $tr.append('<td><code>' + escapeHtml(p.status) + '</code></td>');
             var $actions = $('<td>');
+            $actions.append($('<a class="button button-small button-primary kg-au-edit">Edit spec</a>')
+                .attr('href', cfg.page_url + '&action=edit&policy_id=' + encodeURIComponent(p.policy_id)));
+            $actions.append(' ');
             $actions.append($('<button class="button button-small kg-au-view">View assets</button>').data('policy', p.policy_id));
             $actions.append(' ');
             $actions.append($('<button class="button button-small button-link-delete kg-au-remove">Remove</button>').data('policy', p.policy_id));
@@ -68,6 +71,13 @@
     }
 
     $(function () {
+        // Dispatch by action — the same page slug serves the main list
+        // and the per-policy edit view; the controller picks the template
+        // and we mirror the routing here.
+        if (cfg.action === 'edit' && cfg.policy_id) {
+            initEditor(cfg.policy_id);
+            return;
+        }
         loadPolicies();
 
         $('#kg-au-register').on('click', function () {
@@ -170,6 +180,189 @@
                 })
                 .fail(function (xhr) {
                     $('#kg-au-pane-content').html('<span class="kg-au-bad">Request failed: ' + xhr.status + '</span>');
+                });
+        }
+
+        /* ─── Edit view (phase 3 spec editor) ───────────────────────── */
+
+        function initEditor(policy_id) {
+            renderSummary(null);
+            post('cardano_upgrade_get_policy_edit', { policy_id: policy_id })
+                .done(function (res) {
+                    if (!res || !res.success) {
+                        $('#kg-au-summary').html('<span class="kg-au-bad">' + escapeHtml((res && res.data && res.data.message) || 'Failed to load.') + '</span>');
+                        return;
+                    }
+                    renderEditor(res.data);
+                })
+                .fail(function (xhr) {
+                    $('#kg-au-summary').html('<span class="kg-au-bad">Request failed: ' + xhr.status + '</span>');
+                });
+
+            wireEditorButtons(policy_id);
+        }
+
+        function renderSummary(policy) {
+            if (!policy) {
+                $('#kg-au-summary').html('<em>Loading policy…</em>');
+                return;
+            }
+            var lock = policy.policy_locks_at_slot
+                ? '<span class="kg-au-lock-warn">locks at slot ' + escapeHtml(policy.policy_locks_at_slot) + '</span>'
+                : '<span class="kg-au-lock-ok">no time-lock</span>';
+            $('#kg-au-summary').html(
+                '<table class="widefat"><tbody>' +
+                '<tr><th>Label</th><td>' + escapeHtml(policy.upgrade_label) + '</td></tr>' +
+                '<tr><th>Policy ID</th><td><code>' + escapeHtml(policy.policy_id) + '</code></td></tr>' +
+                '<tr><th>Network</th><td>' + escapeHtml(policy.network) + '</td></tr>' +
+                '<tr><th>Assets</th><td>' + escapeHtml(policy.asset_count == null ? '?' : policy.asset_count) + '</td></tr>' +
+                '<tr><th>Time-lock</th><td>' + lock + '</td></tr>' +
+                '<tr><th>Patch status</th><td><code>' + escapeHtml(policy.status) + '</code></td></tr>' +
+                '</tbody></table>'
+            );
+        }
+
+        function renderEditor(data) {
+            var policy = data.policy;
+            renderSummary(policy);
+
+            // Pretty-print the existing patch into the textarea.
+            var existing = (policy.new_metadata_parsed && typeof policy.new_metadata_parsed === 'object')
+                ? policy.new_metadata_parsed : {};
+            $('#kg-au-patch').val(Object.keys(existing).length ? JSON.stringify(existing, null, 2) : '');
+            $('#kg-au-patch-status').val(policy.status || 'draft');
+
+            renderPerAssetRows(data.per_asset || []);
+        }
+
+        function renderPerAssetRows(rows) {
+            var $body = $('#kg-au-per-asset-body').empty();
+            if (!rows.length) {
+                $body.append('<tr><td colspan="6"><em>No per-asset overrides yet. Paste a CIP-25 bundle above to import.</em></td></tr>');
+                return;
+            }
+            rows.forEach(function (r) {
+                var $tr = $('<tr>');
+                $tr.append('<td><code>' + escapeHtml(r.asset_name) + '</code></td>');
+                $tr.append('<td>' + escapeHtml(r.asset_name_ascii || '') + '</td>');
+                $tr.append('<td><code>' + escapeHtml(r.mode) + '</code></td>');
+                var $statusCell = $('<td>');
+                var $statusSel  = $('<select class="kg-au-row-status">')
+                    .append('<option value="draft">draft</option>')
+                    .append('<option value="active">active</option>')
+                    .append('<option value="paused">paused</option>')
+                    .append('<option value="completed">completed</option>')
+                    .val(r.status)
+                    .data('id', r.id);
+                $statusCell.append($statusSel);
+                $tr.append($statusCell);
+                $tr.append('<td>' + escapeHtml(r.updated_at) + '</td>');
+                var $actions = $('<td>');
+                $actions.append($('<button class="button button-small kg-au-preview-row">Preview</button>').data('asset', r.asset_name));
+                $actions.append(' ');
+                $actions.append($('<button class="button button-small button-link-delete kg-au-delete-row">Delete</button>').data('id', r.id));
+                $tr.append($actions);
+                $body.append($tr);
+            });
+        }
+
+        function wireEditorButtons(policy_id) {
+            $('#kg-au-save-patch').on('click', function () {
+                var $btn = $(this);
+                var $msg = $('#kg-au-patch-msg');
+                var $sp  = $btn.next('.kg-au-spinner').addClass('is-active');
+                var patch_json = $('#kg-au-patch').val();
+                var status     = $('#kg-au-patch-status').val();
+                $btn.prop('disabled', true);
+                setMsg($msg, 'info', 'Saving…');
+                post('cardano_upgrade_save_patch', { policy_id: policy_id, patch_json: patch_json, status: status })
+                    .always(function () { $btn.prop('disabled', false); $sp.removeClass('is-active'); })
+                    .done(function (res) {
+                        if (res && res.success) setMsg($msg, 'ok', 'Saved. Status: ' + res.data.status);
+                        else setMsg($msg, 'bad', (res && res.data && res.data.message) || 'Save failed.');
+                    })
+                    .fail(function (xhr) { setMsg($msg, 'bad', 'Request failed: ' + xhr.status); });
+            });
+
+            $('#kg-au-save-bundle').on('click', function () {
+                var $btn = $(this);
+                var $msg = $('#kg-au-bundle-msg');
+                $btn.prop('disabled', true);
+                setMsg($msg, 'info', 'Parsing + saving…');
+                post('cardano_upgrade_save_per_asset_bundle', {
+                    policy_id: policy_id,
+                    bundle_json: $('#kg-au-bundle').val(),
+                    status: $('#kg-au-bundle-status').val()
+                })
+                    .always(function () { $btn.prop('disabled', false); })
+                    .done(function (res) {
+                        if (res && res.success) {
+                            setMsg($msg, 'ok',
+                                'Imported: ' + res.data.inserted + ' inserted, ' + res.data.updated + ' updated.');
+                            initEditor(policy_id);
+                        } else {
+                            setMsg($msg, 'bad', (res && res.data && res.data.message) || 'Import failed.');
+                        }
+                    })
+                    .fail(function (xhr) { setMsg($msg, 'bad', 'Request failed: ' + xhr.status); });
+            });
+
+            $('#kg-au-preview-go').on('click', function () {
+                runPreview(policy_id, ($('#kg-au-preview-asset').val() || '').trim().toLowerCase());
+            });
+
+            $(document).on('change', '.kg-au-row-status', function () {
+                var $sel = $(this);
+                var id = $sel.data('id');
+                var status = $sel.val();
+                post('cardano_upgrade_set_status', { id: id, status: status })
+                    .done(function (res) {
+                        if (!res || !res.success) {
+                            alert('Status change failed: ' + ((res && res.data && res.data.message) || 'unknown'));
+                            // Reload to get back to a consistent state.
+                            initEditor(policy_id);
+                        }
+                    })
+                    .fail(function () { alert('Status change request failed.'); });
+            });
+
+            $(document).on('click', '.kg-au-delete-row', function () {
+                var id = $(this).data('id');
+                if (!confirm('Delete this per-asset override?')) return;
+                post('cardano_upgrade_delete_per_asset', { id: id })
+                    .done(function () { initEditor(policy_id); })
+                    .fail(function () { alert('Delete request failed.'); });
+            });
+
+            $(document).on('click', '.kg-au-preview-row', function () {
+                var asset = $(this).data('asset');
+                $('#kg-au-preview-asset').val(asset);
+                runPreview(policy_id, asset);
+            });
+        }
+
+        function runPreview(policy_id, asset_name) {
+            var $msg = $('#kg-au-preview-msg');
+            if (!/^[a-f0-9]+$/.test(asset_name) || asset_name.length > 128) {
+                setMsg($msg, 'bad', 'Asset name must be hex, max 128 chars.');
+                return;
+            }
+            setMsg($msg, 'info', 'Fetching on-chain metadata…');
+            post('cardano_upgrade_preview_diff', { policy_id: policy_id, asset_name: asset_name })
+                .done(function (res) {
+                    if (!res || !res.success) {
+                        setMsg($msg, 'bad', (res && res.data && res.data.message) || 'Preview failed.');
+                        $('#kg-au-diff').hide();
+                        return;
+                    }
+                    setMsg($msg, 'ok', 'Loaded. Resolved from: ' + res.data.resolved_from);
+                    $('#kg-au-diff-current').text(JSON.stringify(res.data.current, null, 2));
+                    $('#kg-au-diff-resolved').text(JSON.stringify(res.data.resolved, null, 2));
+                    $('#kg-au-diff-source').text('asset (ascii): ' + (res.data.asset_name_ascii || '—'));
+                    $('#kg-au-diff').show();
+                })
+                .fail(function (xhr) {
+                    setMsg($msg, 'bad', 'Request failed: ' + xhr.status);
                 });
         }
 

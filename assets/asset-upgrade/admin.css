@@ -26,3 +26,18 @@
 .kg-asset-upgrade .kg-au-pane pre { background: #1d2327; color: #e6e6e6; padding: 10px; max-height: 400px; overflow: auto; }
 .kg-asset-upgrade .kg-au-pane-meta { margin-left: 12px; color: #50575e; font-size: 13px; }
 .kg-asset-upgrade .kg-au-pane table { margin-top: 8px; }
+
+/* Phase 3: editor view */
+.kg-au-edit .kg-au-policy-summary { background: #f6f7f7; border: 1px solid #c3c4c7; padding: 4px 12px; border-radius: 4px; margin: 12px 0 20px; }
+.kg-au-edit .kg-au-policy-summary table { background: transparent; box-shadow: none; }
+.kg-au-edit .kg-au-policy-summary th { width: 130px; text-align: left; }
+.kg-au-edit .kg-au-mode-hint { font-size: 12px; font-weight: 400; color: #50575e; margin-left: 8px; }
+.kg-au-edit textarea.code { font-family: Consolas, Monaco, monospace; }
+
+.kg-au-edit .kg-au-diff { display: flex; gap: 16px; margin-top: 12px; }
+.kg-au-edit .kg-au-diff-col { flex: 1; min-width: 0; }
+.kg-au-edit .kg-au-diff pre { background: #1d2327; color: #e6e6e6; padding: 10px; max-height: 500px; overflow: auto; font-size: 12px; }
+.kg-au-edit .kg-au-diff h4 { margin: 8px 0 4px; }
+
+.kg-au-edit .kg-au-per-asset code { background: #f0f0f1; padding: 2px 5px; border-radius: 3px; }
+.kg-au-edit .kg-au-per-asset .kg-au-row-status { min-width: 110px; }
