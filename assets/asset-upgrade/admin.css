@@ -1,0 +1,28 @@
+.kg-asset-upgrade h2 { margin-top: 24px; }
+.kg-asset-upgrade .kg-au-register input[type="text"] { font-family: Consolas, Monaco, monospace; }
+.kg-asset-upgrade .kg-au-msg { margin-left: 10px; font-weight: 600; }
+.kg-asset-upgrade .kg-au-ok    { color: #008a20; }
+.kg-asset-upgrade .kg-au-bad   { color: #b32d2e; }
+.kg-asset-upgrade .kg-au-info  { color: #2271b1; font-weight: 500; }
+
+.kg-asset-upgrade .kg-au-spinner { float: none; margin: 0 6px; }
+.kg-asset-upgrade .kg-au-spinner.is-active { visibility: visible; }
+
+.kg-asset-upgrade .kg-au-policies code { background: #f0f0f1; padding: 2px 5px; border-radius: 3px; }
+.kg-asset-upgrade .kg-au-policies th,
+.kg-asset-upgrade .kg-au-policies td { vertical-align: middle; }
+
+.kg-asset-upgrade .kg-au-lock-ok   { color: #008a20; font-weight: 600; }
+.kg-asset-upgrade .kg-au-lock-warn { color: #b76e00; font-weight: 600; }
+.kg-asset-upgrade .kg-au-lock-bad  { color: #b32d2e; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+
+.kg-asset-upgrade .kg-au-pane {
+    background: #f6f7f7;
+    border: 1px solid #c3c4c7;
+    padding: 12px 16px;
+    margin-top: 16px;
+    border-radius: 4px;
+}
+.kg-asset-upgrade .kg-au-pane pre { background: #1d2327; color: #e6e6e6; padding: 10px; max-height: 400px; overflow: auto; }
+.kg-asset-upgrade .kg-au-pane-meta { margin-left: 12px; color: #50575e; font-size: 13px; }
+.kg-asset-upgrade .kg-au-pane table { margin-top: 8px; }
