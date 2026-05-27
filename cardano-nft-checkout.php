@@ -71,6 +71,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/controllers/OnrampAdminContro
 // signs one tx that burns the old token and re-mints the same asset name
 // with new metadata. See docs/BUILD_PLAN.md.
 require_once plugin_dir_path(__FILE__) . 'includes/asset-upgrade/AssetUpgradeInstaller.php';
+require_once plugin_dir_path(__FILE__) . 'includes/asset-upgrade/MetadataResolver.php';
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/AssetUpgradeAdminController.php';
 \CardanoMintPay\Controllers\AssetUpgradeAdminController::register();
 
