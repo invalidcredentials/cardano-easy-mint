@@ -83,6 +83,130 @@ class BlockfrostClient {
         return self::projectIdFor($network) !== '';
     }
 
+    /* ─── Asset Upgrade reads ─────────────────────────────────────────────
+     *
+     * Three thin GETs used by the Asset Upgrade (burn & re-mint) flow:
+     *   - assetsByPolicy: list every asset under a policy (paginated)
+     *   - assetMetadata:  current on-chain CIP-25 metadata for one asset
+     *   - policyScript:   the native script JSON for time-lock decoding
+     *
+     * Each call returns ['ok' => bool, 'data' => mixed, 'error' => ?string,
+     * 'status' => int]. Caller doesn't need to know whether 404 means
+     * "not found yet" vs. "you misconfigured" — error string covers it.
+     */
+
+    /**
+     * List assets under a policy, one Blockfrost page at a time.
+     * Returns ['ok'=>true, 'data'=>[{asset, quantity}, ...]] on success.
+     *
+     * count and page mirror Blockfrost: count max 100, page 1-indexed.
+     * Caller is responsible for iterating pages until an empty array
+     * comes back — Blockfrost has no total-count header.
+     */
+    public static function assetsByPolicy(string $policyId, string $network, int $page = 1, int $count = 100): array {
+        return self::get('/assets/policy/' . rawurlencode($policyId), $network, [
+            'page'  => max(1, $page),
+            'count' => max(1, min(100, $count)),
+        ]);
+    }
+
+    /**
+     * Latest on-chain metadata for a single asset. The asset id is the
+     * 56-char policy id concatenated with the hex-encoded asset name, no
+     * separator — Blockfrost's wire format.
+     *
+     * The returned 'data' object includes onchain_metadata (the CIP-25
+     * 721 block as a parsed object), quantity (current circulating
+     * supply), fingerprint, and policy_id / asset_name split out.
+     */
+    public static function assetMetadata(string $assetId, string $network): array {
+        return self::get('/assets/' . rawurlencode($assetId), $network);
+    }
+
+    /**
+     * Fetch the native script JSON for a policy. Blockfrost expects the
+     * policy id as the script hash (they're the same value for native
+     * policies). Caller can pass the result to decodePolicyLockSlot() to
+     * pull out a time-lock slot if present.
+     */
+    public static function policyScript(string $policyId, string $network): array {
+        return self::get('/scripts/' . rawurlencode($policyId) . '/json', $network);
+    }
+
+    /**
+     * Walk a native script tree looking for the first "before" clause.
+     * Returns the slot number after which the policy is locked, or null
+     * if no time-lock exists.
+     *
+     * The result of /scripts/{hash}/json is wrapped in a top-level "json"
+     * key. We accept either the wrapper or the bare script for caller
+     * convenience.
+     *
+     * NOTE: For complex policies using "any" combinators with multiple
+     * time-locks, this returns the first one found, which may not be
+     * the actual lock semantics. Adequate for the typical "all of: sig,
+     * before slot" CIP-25 structure. Refine in a later phase if we
+     * encounter weirder scripts in the wild.
+     */
+    public static function decodePolicyLockSlot($script): ?int {
+        if (!is_array($script)) return null;
+        if (isset($script['json']) && is_array($script['json'])) $script = $script['json'];
+        if (!isset($script['type'])) return null;
+
+        if ($script['type'] === 'before') {
+            return isset($script['slot']) ? (int) $script['slot'] : null;
+        }
+        if (in_array($script['type'], ['all', 'any', 'atLeast'], true) && isset($script['scripts']) && is_array($script['scripts'])) {
+            foreach ($script['scripts'] as $sub) {
+                $slot = self::decodePolicyLockSlot($sub);
+                if ($slot !== null) return $slot;
+            }
+        }
+        return null;
+    }
+
+    /* ─── internals ───────────────────────────────────────────────────── */
+
+    /**
+     * Shared Blockfrost GET. Returns:
+     *   ['ok' => bool, 'data' => mixed, 'status' => int, 'error' => ?string]
+     * Network errors and non-2xx responses map to ok=false with an error
+     * string. 404 is surfaced as ok=false with status=404 so callers can
+     * treat "not found" distinctly from "request blew up".
+     */
+    private static function get(string $path, string $network, array $query = []): array {
+        $project_id = self::projectIdFor($network);
+        if ($project_id === '') {
+            return ['ok' => false, 'error' => "Blockfrost project ID for {$network} is not set in Settings.", 'status' => 0, 'data' => null];
+        }
+        $base = self::baseUrlFor($network);
+        if ($base === '') {
+            return ['ok' => false, 'error' => "unknown network: {$network}", 'status' => 0, 'data' => null];
+        }
+
+        $url = $base . $path;
+        if (!empty($query)) $url .= '?' . http_build_query($query);
+
+        $response = wp_remote_get($url, [
+            'headers' => ['project_id' => $project_id],
+            'timeout' => 10,
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['ok' => false, 'error' => $response->get_error_message(), 'status' => 0, 'data' => null];
+        }
+
+        $code = (int) wp_remote_retrieve_response_code($response);
+        $body = (string) wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if ($code === 200) {
+            return ['ok' => true, 'data' => $data, 'status' => 200, 'error' => null];
+        }
+        $msg = is_array($data) && isset($data['message']) ? (string) $data['message'] : ('http ' . $code);
+        return ['ok' => false, 'error' => $msg, 'status' => $code, 'data' => $data];
+    }
+
     private static function projectIdFor(string $network): string {
         switch ($network) {
             case 'mainnet': return (string) get_option('cardano_mint_altpay_blockfrost_mainnet', '');

@@ -66,6 +66,12 @@ require_once plugin_dir_path(__FILE__) . 'includes/controllers/OnrampPublicContr
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/OnrampWebhookController.php';
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/OnrampAdminController.php';
 
+// Asset Upgrade (burn & re-mint). Adds a per-asset CIP-25 refresh flow:
+// customer connects wallet, picks an eligible NFT under a configured policy,
+// signs one tx that burns the old token and re-mints the same asset name
+// with new metadata. See docs/BUILD_PLAN.md.
+require_once plugin_dir_path(__FILE__) . 'includes/asset-upgrade/AssetUpgradeInstaller.php';
+
 // Register activation hook for database tables
 register_activation_hook(__FILE__, 'cardanomint_activate');
 
@@ -87,6 +93,9 @@ function cardanomint_activate() {
 
     // On-ramp sessions schema (Guardarian fiat-to-ADA).
     CardanoMintPay\Onramp\OnrampInstaller::install();
+
+    // Asset Upgrade schema (burn & re-mint specs + audit log).
+    CardanoMintPay\AssetUpgrade\AssetUpgradeInstaller::install();
 
     // Fix binary permissions on Linux
     cardanomint_fix_binary_permissions();
@@ -196,6 +205,13 @@ add_action('admin_init', function() {
 add_action('admin_init', function() {
     if (class_exists('CardanoMintPay\\AltPay\\AltPayInstaller')) {
         CardanoMintPay\AltPay\AltPayInstaller::maybe_install();
+    }
+});
+
+// Same JIT-migration pattern for the Asset Upgrade tables.
+add_action('admin_init', function() {
+    if (class_exists('CardanoMintPay\\AssetUpgrade\\AssetUpgradeInstaller')) {
+        CardanoMintPay\AssetUpgrade\AssetUpgradeInstaller::maybe_install();
     }
 });
 
