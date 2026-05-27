@@ -134,6 +134,45 @@ class BlockfrostClient {
     }
 
     /**
+     * List every asset held under a stake address, walking pagination.
+     * Used by the Asset Upgrade eligibility endpoint to find what the
+     * customer's connected wallet actually owns across all their addresses
+     * (Cardano wallets have many payment addresses under one stake key).
+     *
+     * Returns ['ok'=>true, 'data'=>[ {unit, quantity}, ... ]] on success.
+     * Returns ['ok'=>false, ...] with status=404 when the stake address
+     * has no on-chain activity yet (an empty wallet); caller can treat
+     * that as "no eligible upgrades" rather than an error.
+     */
+    public static function assetsAtStakeAddress(string $stakeAddress, string $network): array {
+        $all = [];
+        $page = 1;
+        while (true) {
+            $resp = self::get(
+                '/accounts/' . rawurlencode($stakeAddress) . '/addresses/assets',
+                $network,
+                ['page' => $page, 'count' => 100]
+            );
+            if (!$resp['ok']) {
+                // 404 from this endpoint means "stake address has never had
+                // on-chain activity" — treat as empty list, not an error.
+                if (($resp['status'] ?? 0) === 404) {
+                    return ['ok' => true, 'data' => [], 'status' => 404, 'error' => null];
+                }
+                return $resp;
+            }
+            $batch = is_array($resp['data']) ? $resp['data'] : [];
+            foreach ($batch as $row) {
+                if (is_array($row) && isset($row['unit'])) $all[] = $row;
+            }
+            if (count($batch) < 100) break;
+            $page++;
+            if ($page > 200) break; // 20k asset hard cap
+        }
+        return ['ok' => true, 'data' => $all, 'status' => 200, 'error' => null];
+    }
+
+    /**
      * Walk a native script tree looking for the first "before" clause.
      * Returns the slot number after which the policy is locked, or null
      * if no time-lock exists.

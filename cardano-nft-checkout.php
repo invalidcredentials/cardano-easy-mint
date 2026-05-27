@@ -73,7 +73,55 @@ require_once plugin_dir_path(__FILE__) . 'includes/controllers/OnrampAdminContro
 require_once plugin_dir_path(__FILE__) . 'includes/asset-upgrade/AssetUpgradeInstaller.php';
 require_once plugin_dir_path(__FILE__) . 'includes/asset-upgrade/MetadataResolver.php';
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/AssetUpgradeAdminController.php';
+require_once plugin_dir_path(__FILE__) . 'includes/controllers/AssetUpgradePublicController.php';
 \CardanoMintPay\Controllers\AssetUpgradeAdminController::register();
+\CardanoMintPay\Controllers\AssetUpgradePublicController::register();
+
+/**
+ * [cardano-upgrade] shortcode. Renders the customer-facing upgrade button
+ * + modal. See includes/views/asset-upgrade/shortcode.php for the markup
+ * and assets/asset-upgrade/upgrade.js for the CIP-30 + diff flow.
+ *
+ * Supported attrs:
+ *   policy-id="<56 hex>"   filter eligibility to one policy (optional)
+ *   label="My text"        override the trigger button label
+ */
+add_shortcode('cardano-upgrade', function ($atts) {
+    static $instance_counter = 0;
+    $instance_counter++;
+
+    $atts = shortcode_atts([
+        'policy-id' => '',
+        'label'     => 'Upgrade my NFTs',
+    ], $atts, 'cardano-upgrade');
+
+    $instance_id  = (string) $instance_counter;
+    $policy_id    = preg_match('/^[a-f0-9]{56}$/i', (string) $atts['policy-id']) ? (string) $atts['policy-id'] : '';
+    $button_label = (string) $atts['label'];
+
+    $base_url = plugin_dir_url(__FILE__);
+    wp_enqueue_style(
+        'cardano-upgrade',
+        $base_url . 'assets/asset-upgrade/upgrade.css',
+        [],
+        (string) @filemtime(plugin_dir_path(__FILE__) . 'assets/asset-upgrade/upgrade.css')
+    );
+    wp_enqueue_script(
+        'cardano-upgrade',
+        $base_url . 'assets/asset-upgrade/upgrade.js',
+        [],
+        (string) @filemtime(plugin_dir_path(__FILE__) . 'assets/asset-upgrade/upgrade.js'),
+        true
+    );
+    wp_localize_script('cardano-upgrade', 'KG_CARDANO_UPGRADE', [
+        'rest_url' => esc_url_raw(rest_url('cardano-mint/v1/')),
+        'nonce'    => wp_create_nonce('wp_rest'),
+    ]);
+
+    ob_start();
+    include plugin_dir_path(__FILE__) . 'includes/views/asset-upgrade/shortcode.php';
+    return ob_get_clean();
+});
 
 // Register activation hook for database tables
 register_activation_hook(__FILE__, 'cardanomint_activate');
