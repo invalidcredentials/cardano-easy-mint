@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) exit;
 class AssetUpgradeInstaller {
 
     const FLAG_OPTION    = 'cardano_mint_asset_upgrade_schema_version';
-    const SCHEMA_VERSION = '1';
+    const SCHEMA_VERSION = '2';
 
     public static function table_specs(): string {
         global $wpdb;
@@ -66,12 +66,14 @@ class AssetUpgradeInstaller {
             id                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             policy_id               VARCHAR(56)  NOT NULL,
             asset_name              VARCHAR(128) NOT NULL DEFAULT '',
+            network                 VARCHAR(16)  NOT NULL DEFAULT 'mainnet',
             upgrade_label           VARCHAR(120) NOT NULL,
             current_metadata        LONGTEXT     NULL,
             new_metadata            LONGTEXT     NOT NULL,
             mode                    VARCHAR(8)   NOT NULL DEFAULT 'patch',
             status                  VARCHAR(16)  NOT NULL DEFAULT 'draft',
             policy_locks_at_slot    BIGINT       NULL,
+            asset_count             INT UNSIGNED NULL,
             created_at              DATETIME     NOT NULL,
             updated_at              DATETIME     NOT NULL,
             completed_at            DATETIME     NULL,
