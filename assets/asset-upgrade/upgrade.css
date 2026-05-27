@@ -1,0 +1,150 @@
+/* Asset Upgrade — customer modal (phase 4) */
+
+.kg-cu-root { display: inline-block; }
+.kg-cu-trigger { font-size: 15px; padding: 10px 18px; }
+
+.kg-cu-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+.kg-cu-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+}
+.kg-cu-modal-content {
+    position: relative;
+    width: min(720px, 92vw);
+    max-height: 92vh;
+    overflow: auto;
+    background: #fff;
+    color: #1d2327;
+    border-radius: 8px;
+    padding: 24px 28px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.45;
+}
+.kg-cu-modal-close {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    background: transparent;
+    border: 0;
+    font-size: 28px;
+    line-height: 1;
+    color: #777;
+    cursor: pointer;
+}
+.kg-cu-modal-close:hover { color: #000; }
+
+.kg-cu-modal h2 { margin-top: 0; }
+
+/* Wallet picker */
+.kg-cu-wallets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 16px 0;
+}
+.kg-cu-wallet-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #f6f7f7;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    padding: 10px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    color: inherit;
+}
+.kg-cu-wallet-btn:hover { background: #eaeaea; border-color: #8c8f94; }
+.kg-cu-wallet-icon { width: 24px; height: 24px; object-fit: contain; }
+.kg-cu-hint { color: #50575e; font-size: 13px; }
+.kg-cu-bad  { color: #b32d2e; }
+
+/* Loading */
+.kg-cu-spinner {
+    width: 32px; height: 32px;
+    border: 3px solid #c3c4c7;
+    border-top-color: #2271b1;
+    border-radius: 50%;
+    animation: kg-cu-spin 0.8s linear infinite;
+    margin: 16px 0;
+}
+@keyframes kg-cu-spin { to { transform: rotate(360deg); } }
+.kg-cu-status { color: #50575e; font-size: 13px; }
+
+/* Asset grid */
+.kg-cu-eligible-count { color: #50575e; font-size: 13px; }
+.kg-cu-asset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+}
+.kg-cu-asset-card {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 8px;
+    padding: 10px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 120ms, box-shadow 120ms;
+    color: inherit;
+    font: inherit;
+}
+.kg-cu-asset-card:hover { border-color: #2271b1; box-shadow: 0 2px 6px rgba(34,113,177,0.15); }
+.kg-cu-asset-thumb {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    border-radius: 4px;
+    background: #f0f0f1;
+}
+.kg-cu-asset-thumb-empty { background: linear-gradient(135deg, #e4e6e7, #c3c4c7); }
+.kg-cu-asset-name { font-weight: 600; margin: 8px 0 4px; word-break: break-word; }
+.kg-cu-asset-tag {
+    display: inline-block;
+    background: #f0f0f1;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    color: #50575e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Diff */
+.kg-cu-diff-summary { color: #50575e; font-size: 13px; }
+.kg-cu-diff {
+    display: flex;
+    gap: 14px;
+    margin: 14px 0;
+}
+.kg-cu-diff-col { flex: 1; min-width: 0; }
+.kg-cu-diff-col h4 { margin: 0 0 6px; }
+.kg-cu-diff pre {
+    background: #1d2327;
+    color: #e6e6e6;
+    padding: 10px;
+    max-height: 320px;
+    overflow: auto;
+    font-size: 12px;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.kg-cu-actions { display: flex; gap: 8px; margin-top: 12px; }
+.kg-cu-phase-note { color: #50575e; font-size: 12px; margin-top: 8px; }
+.kg-cu-empty     { color: #50575e; font-style: italic; }
+
+/* Narrow screens: stack the diff columns */
+@media (max-width: 640px) {
+    .kg-cu-diff { flex-direction: column; }
+}
