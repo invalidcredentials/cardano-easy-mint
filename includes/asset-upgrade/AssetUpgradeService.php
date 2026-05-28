@@ -30,13 +30,11 @@ if (!defined('ABSPATH')) exit;
  * (built / submitted / confirmed / failed) is its own row; rows are never
  * mutated. See docs/BUILD_PLAN.md (decision AU-D8).
  *
- * IMPORTANT — Anvil payload shape: the mint array with both a negative-
- * quantity (burn) and positive-quantity (re-mint) entry under the same
- * policy is the load-bearing pattern. This matches CIP-25 atomic update
- * semantics natively, but the exact Anvil field name for the negative
- * quantity ('quantity' here) needs to be confirmed against a preprod
- * sandbox before considering this production-ready. See open question #1
- * in BUILD_PLAN.md.
+ * Anvil payload shape: the mint array with both a negative-quantity (burn)
+ * and positive-quantity (re-mint) entry under the same policy is the
+ * load-bearing pattern. Confirmed 2026-05-27: same shape as the existing
+ * mint entry, just `quantity: -1` on the burn entry; the rest of the
+ * fields are identical.
  */
 class AssetUpgradeService {
 

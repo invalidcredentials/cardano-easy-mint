@@ -204,8 +204,8 @@ The net effect on the customer's wallet: the old asset (with its old metadata) i
 - **Bulk customer self-service** (one click upgrades ALL of my eligible assets). v1 is one-at-a-time per signed tx; bulk requires per-tx fee math + UX scope creep.
 - **Re-running an upgrade after `completed`.** Once an asset is logged as confirmed-upgraded, the row is closed. New upgrade = new spec.
 
-## Open questions to confirm before phase 1
+## Open questions
 
-1. Anvil's exact field name for negative-quantity mints — confirm via their docs or a sandbox test against preprod before we commit to the payload shape in `AnvilAPI.php`.
-2. Storage for the asset-thumbnail in the admin list — pull through Blockfrost / IPFS each time, or cache locally? Probably cache via existing `previewImage` infra in `wp_cardanonftactivemints`.
-3. Do we want `[cardano-upgrade]` to also work without a connected wallet by showing "Connect to see your eligible upgrades", or require connection before the shortcode renders anything? Mint flow uses the connect-first pattern; suggest matching.
+1. ~~Anvil's exact field name for negative-quantity mints~~ — **resolved 2026-05-27**: same shape as the existing mint entry, just `quantity: -1` instead of `1`. The mint endpoint accepts negative quantities natively. No sandbox needed.
+2. Storage for the asset-thumbnail in the admin list — pull through Blockfrost / IPFS each time, or cache locally? Probably cache via existing `previewImage` infra in `wp_cardanonftactivemints`. **Deferred to v4.4 polish.**
+3. Do we want `[cardano-upgrade]` to also work without a connected wallet by showing "Connect to see your eligible upgrades", or require connection before the shortcode renders anything? **Resolved in code**: shortcode renders the trigger button immediately; modal handles the connect-first dance, matching the [cardano-mint] pattern.

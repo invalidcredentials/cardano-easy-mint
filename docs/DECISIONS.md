@@ -18,7 +18,7 @@ The eight decisions enumerated in [BUILD_PLAN.md § Locked decisions](BUILD_PLAN
 
 ### AU-D1 — Burn + re-mint in one atomic transaction
 
-**Status:** locked at design time. Will be verified in phase 5 against Anvil's preprod sandbox.
+**Status:** locked at design time. Anvil payload shape confirmed by pb 2026-05-27 — burn entry is the same shape as the mint entry with `quantity: -1` instead of `1`; both ride in the same `mint` array under the same policy id. CIP-25 atomic update semantics work natively.
 
 ### AU-D2 — Same `policy_id + asset_name`, new metadata only
 
