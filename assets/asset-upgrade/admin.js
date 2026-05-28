@@ -200,6 +200,58 @@
                 });
 
             wireEditorButtons(policy_id);
+            loadHistory(policy_id);
+        }
+
+        function loadHistory(policy_id) {
+            var $body = $('#kg-au-history-body');
+            if (!$body.length) return; // older view template before phase 6
+            $body.html('<tr><td colspan="6"><em>Loading…</em></td></tr>');
+            post('cardano_upgrade_get_history', { policy_id: policy_id, limit: 100 })
+                .done(function (res) {
+                    if (!res || !res.success) {
+                        $body.html('<tr><td colspan="6"><span class="kg-au-bad">' + escapeHtml((res && res.data && res.data.message) || 'Failed to load history.') + '</span></td></tr>');
+                        return;
+                    }
+                    renderHistory(res.data.history || []);
+                })
+                .fail(function (xhr) {
+                    $body.html('<tr><td colspan="6"><span class="kg-au-bad">Request failed: ' + xhr.status + '</span></td></tr>');
+                });
+        }
+
+        function renderHistory(rows) {
+            var $body = $('#kg-au-history-body').empty();
+            if (!rows.length) {
+                $body.append('<tr><td colspan="6"><em>No customer upgrades have run yet under this policy.</em></td></tr>');
+                return;
+            }
+            rows.forEach(function (r) {
+                var $tr = $('<tr>');
+                $tr.append('<td>' + escapeHtml(r.created_at) + '</td>');
+                var asset = r.asset_name_ascii && r.asset_name_ascii !== ''
+                    ? r.asset_name_ascii
+                    : (r.asset_name || '').substring(0, 16) + '…';
+                $tr.append('<td>' + escapeHtml(asset) + '</td>');
+                var wallet = (r.wallet_address || '');
+                var walletShort = wallet.length > 20 ? wallet.substring(0, 12) + '…' + wallet.substring(wallet.length - 4) : wallet;
+                $tr.append('<td><code title="' + escapeHtml(wallet) + '">' + escapeHtml(walletShort) + '</code></td>');
+                var statusCls = ({
+                    'built':     'kg-au-info',
+                    'submitted': 'kg-au-info',
+                    'confirmed': 'kg-au-ok',
+                    'failed':    'kg-au-bad'
+                })[r.status] || '';
+                $tr.append('<td><span class="' + statusCls + '">' + escapeHtml(r.status) + '</span></td>');
+                if (r.tx_hash) {
+                    var short = String(r.tx_hash).substring(0, 12) + '…';
+                    $tr.append('<td><a href="https://cardanoscan.io/transaction/' + encodeURIComponent(r.tx_hash) + '" target="_blank" rel="noopener noreferrer"><code title="' + escapeHtml(r.tx_hash) + '">' + escapeHtml(short) + '</code></a></td>');
+                } else {
+                    $tr.append('<td>—</td>');
+                }
+                $tr.append('<td>' + escapeHtml(r.error_message || '') + '</td>');
+                $body.append($tr);
+            });
         }
 
         function renderSummary(policy) {
@@ -338,6 +390,12 @@
                 var asset = $(this).data('asset');
                 $('#kg-au-preview-asset').val(asset);
                 runPreview(policy_id, asset);
+            });
+
+            $('#kg-au-history-refresh').on('click', function () {
+                setMsg($('#kg-au-history-msg'), 'info', 'Refreshing…');
+                loadHistory(policy_id);
+                setTimeout(function () { setMsg($('#kg-au-history-msg'), 'info', ''); }, 1000);
             });
         }
 

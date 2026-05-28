@@ -114,4 +114,32 @@ if (!defined('ABSPATH')) exit;
             <tr><td colspan="6"><em>Loading…</em></td></tr>
         </tbody>
     </table>
+
+    <hr>
+
+    <h2>Upgrade history</h2>
+    <p class="description">
+        Append-only audit of every customer upgrade attempt under this policy. Each tx typically shows up
+        as three rows: <code>built</code>, <code>submitted</code>, and <code>confirmed</code> (the last is
+        written by a 5-min cron once the tx lands on-chain). <code>failed</code> rows include the error.
+    </p>
+    <p>
+        <button class="button" id="kg-au-history-refresh">Refresh</button>
+        <span class="kg-au-msg" id="kg-au-history-msg"></span>
+    </p>
+    <table class="widefat striped kg-au-history">
+        <thead>
+            <tr>
+                <th>When (UTC)</th>
+                <th>Asset</th>
+                <th>Wallet</th>
+                <th>Status</th>
+                <th>Tx hash</th>
+                <th>Error</th>
+            </tr>
+        </thead>
+        <tbody id="kg-au-history-body">
+            <tr><td colspan="6"><em>Loading…</em></td></tr>
+        </tbody>
+    </table>
 </div>

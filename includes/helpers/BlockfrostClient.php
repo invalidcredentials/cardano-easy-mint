@@ -173,6 +173,17 @@ class BlockfrostClient {
     }
 
     /**
+     * Look up a single transaction by hash. Returns ok=true with the tx
+     * details (block_height, block_time, etc.) when found, ok=false with
+     * status=404 while the tx is still pending or not propagated. Used by
+     * the Asset Upgrade confirmation watcher cron to flip 'submitted'
+     * audit rows to 'confirmed' once they land.
+     */
+    public static function getTransaction(string $txHash, string $network): array {
+        return self::get('/txs/' . rawurlencode($txHash), $network);
+    }
+
+    /**
      * Walk a native script tree looking for the first "before" clause.
      * Returns the slot number after which the policy is locked, or null
      * if no time-lock exists.

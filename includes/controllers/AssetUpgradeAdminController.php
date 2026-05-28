@@ -40,6 +40,8 @@ class AssetUpgradeAdminController {
         add_action('wp_ajax_cardano_upgrade_delete_per_asset',     [self::class, 'ajax_delete_per_asset']);
         add_action('wp_ajax_cardano_upgrade_set_status',           [self::class, 'ajax_set_status']);
         add_action('wp_ajax_cardano_upgrade_preview_diff',         [self::class, 'ajax_preview_diff']);
+        // Phase 6: history
+        add_action('wp_ajax_cardano_upgrade_get_history',          [self::class, 'ajax_get_history']);
     }
 
     public static function register_menu(): void {
@@ -605,6 +607,33 @@ class AssetUpgradeAdminController {
             'resolved'        => $resolved,
             'resolved_from'   => $resolved_from,
         ]);
+    }
+
+    /**
+     * Phase 6: recent audit-log rows for one policy, newest first.
+     * Returns each event as its own row (the log is append-only, so a
+     * given upgrade attempt typically shows up as built → submitted →
+     * confirmed across three rows).
+     */
+    public static function ajax_get_history(): void {
+        self::ajax_guard();
+        $policy_id = isset($_POST['policy_id']) ? sanitize_text_field((string) $_POST['policy_id']) : '';
+        $limit     = isset($_POST['limit']) ? max(1, min(200, (int) $_POST['limit'])) : 50;
+        if (!preg_match('/^[a-f0-9]{56}$/i', $policy_id)) {
+            wp_send_json_error(['message' => 'Invalid policy ID.']);
+        }
+        global $wpdb;
+        $table = AssetUpgradeInstaller::table_log();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, upgrade_id, policy_id, asset_name, wallet_address, tx_hash, status, error_message, created_at
+             FROM $table WHERE policy_id = %s ORDER BY id DESC LIMIT %d",
+            $policy_id, $limit
+        ), ARRAY_A);
+
+        foreach ($rows as &$r) {
+            $r['asset_name_ascii'] = MetadataResolver::hexToAscii((string) $r['asset_name']);
+        }
+        wp_send_json_success(['history' => $rows]);
     }
 
     /* ─── helpers ──────────────────────────────────────────────────────── */
