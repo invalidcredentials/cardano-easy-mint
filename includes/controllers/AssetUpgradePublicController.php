@@ -16,6 +16,7 @@
 namespace CardanoMintPay\Controllers;
 
 use CardanoMintPay\AssetUpgrade\AssetUpgradeInstaller;
+use CardanoMintPay\AssetUpgrade\AssetUpgradeService;
 use CardanoMintPay\AssetUpgrade\MetadataResolver;
 use CardanoMintPay\Helpers\BlockfrostClient;
 use CardanoMintPay\Helpers\AnvilAPI;
@@ -36,12 +37,45 @@ class AssetUpgradePublicController {
             'callback'            => [self::class, 'route_eligible'],
             'permission_callback' => '__return_true',
             'args'                => [
-                'address' => [
-                    'required' => true,
-                    'type'     => 'string',
-                ],
+                'address' => ['required' => true, 'type' => 'string'],
             ],
         ]);
+        register_rest_route(self::NAMESPACE, '/upgrade/build', [
+            'methods'             => 'POST',
+            'callback'            => [self::class, 'route_build'],
+            'permission_callback' => '__return_true',
+            'args'                => [
+                'policy_id'        => ['required' => true, 'type' => 'string'],
+                'asset_name'       => ['required' => true, 'type' => 'string'],
+                'customer_address' => ['required' => true, 'type' => 'string'],
+            ],
+        ]);
+        register_rest_route(self::NAMESPACE, '/upgrade/submit', [
+            'methods'             => 'POST',
+            'callback'            => [self::class, 'route_submit'],
+            'permission_callback' => '__return_true',
+            'args'                => [
+                'log_id'         => ['required' => true, 'type' => 'integer'],
+                'signed_tx_hex'  => ['required' => true, 'type' => 'string'],
+            ],
+        ]);
+    }
+
+    public static function route_build(\WP_REST_Request $req) {
+        $policy_id  = (string) $req->get_param('policy_id');
+        $asset_name = (string) $req->get_param('asset_name');
+        $customer   = (string) $req->get_param('customer_address');
+        $result = AssetUpgradeService::build($policy_id, $asset_name, $customer);
+        $status = !empty($result['ok']) ? 200 : 400;
+        return new \WP_REST_Response($result, $status);
+    }
+
+    public static function route_submit(\WP_REST_Request $req) {
+        $log_id        = (int) $req->get_param('log_id');
+        $signed_tx_hex = (string) $req->get_param('signed_tx_hex');
+        $result = AssetUpgradeService::submit($log_id, $signed_tx_hex);
+        $status = !empty($result['ok']) ? 200 : 400;
+        return new \WP_REST_Response($result, $status);
     }
 
     /**

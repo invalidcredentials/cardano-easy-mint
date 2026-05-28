@@ -72,6 +72,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/controllers/OnrampAdminContro
 // with new metadata. See docs/BUILD_PLAN.md.
 require_once plugin_dir_path(__FILE__) . 'includes/asset-upgrade/AssetUpgradeInstaller.php';
 require_once plugin_dir_path(__FILE__) . 'includes/asset-upgrade/MetadataResolver.php';
+require_once plugin_dir_path(__FILE__) . 'includes/asset-upgrade/AssetUpgradeService.php';
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/AssetUpgradeAdminController.php';
 require_once plugin_dir_path(__FILE__) . 'includes/controllers/AssetUpgradePublicController.php';
 \CardanoMintPay\Controllers\AssetUpgradeAdminController::register();
