@@ -2,6 +2,35 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.3.0] - 2026-05-27
+
+Adds the **Asset Upgrade** subsystem: a per-asset CIP-25 metadata refresh flow that burns the existing NFT and re-mints the same asset name with new metadata in a single transaction. Customer connects their wallet, picks an eligible NFT, signs once — same fingerprint, new metadata.
+
+### Added
+- **New admin page** Cardano Mint → Asset Upgrades. Register a policy by ID, snapshot every asset under it via Blockfrost (paginated `/assets/policy/{id}`), decode the policy's native script for time-lock state, persist a draft policy-wide spec row. Gated by the same TOTP unlock as Payment Wallets — one enrollment covers both.
+- **Spec editor** with two complementary modes. *Patch mode* (one JSON diff that shallow-merges onto every asset's current metadata) for collection-wide changes like swapping all images to a new IPFS CID. *Per-asset mode* (full-replacement bundle paste in the canonical `{"721": {<policy>: {<asset>: {...}}}}` CIP-25 shape) for per-NFT overrides. Per-asset rows take precedence at resolve time. Draft / active / paused / completed status per row, with activation refused if `new_metadata` is empty.
+- **Preview pane** that fetches an asset's current chain metadata via Blockfrost and shows the resolved result side-by-side with the source label (per-asset full vs. policy-wide patch).
+- **Customer-facing `[cardano-upgrade]` shortcode.** Self-contained vanilla-JS modal that detects installed CIP-30 wallets (`window.cardano.*`), enables on click, pulls a reward (stake) address via `api.getRewardAddresses()`, calls a new REST endpoint to fetch eligible assets, renders a grid with IPFS thumbnails, opens a before/after JSON diff on card click, and runs the build-sign-submit dance on the Upgrade button. Optional `policy-id` attr filters eligibility to one policy; optional `label` attr overrides the trigger text.
+- **REST surface** under `cardano-mint/v1`. `POST /upgrade/eligible` matches the connected wallet's holdings to active upgrade specs, applies per-asset overrides or merges the policy-wide patch onto current chain metadata, returns the resolved list. `POST /upgrade/build` composes an Anvil multi-mint payload (one entry at `quantity=-1`, one at `+1` with new metadata, same policy + asset name) and returns the unsigned tx + audit log id. `POST /upgrade/submit` adds the policy signature via `CardanoCLI` and submits.
+- **Append-only audit log** `wp_cardano_asset_upgrade_log`. One row per event (built / submitted / confirmed / failed) per upgrade attempt. Per-policy history panel on the edit page; rows include short-form tx hashes linked to Cardanoscan.
+- **Confirmation watcher** WP-Cron `cardano_asset_upgrade_confirm_tick` at 5-minute interval. Picks up to 25 'submitted' audit rows per tick (deduped by tx_hash), queries Blockfrost `/txs/{hash}`, inserts a 'confirmed' event when the tx lands. 404 treated as "not yet"; other errors close the row as 'failed' so we stop polling.
+- **`BlockfrostClient` extensions.** Four new reads: `assetsByPolicy`, `assetMetadata`, `policyScript`, `assetsAtStakeAddress`, `getTransaction`. Shared private `get()` helper returning `{ok, data, status, error}` so callers don't have to disambiguate 404 vs. genuine failures. `decodePolicyLockSlot()` walker pulls the first `before` slot out of typical CIP-25 policy script structures (`all` of: sig, before).
+- **Time-lock guard at both register and build time.** If a policy's `before slot N` is in the past, registration refuses with a clear message; if it lands in the past between registration and a customer build, the build refuses before any wallet signature is requested.
+- **Multi-quantity guard.** Refuses to burn-and-re-mint when the asset's on-chain quantity is > 1 — the burn(-1)+mint(+1) pattern is only safe for 1-of-1 CIP-25 NFTs.
+
+### Database
+- New table `wp_cardano_asset_upgrades` (one row per upgrade spec, keyed `(policy_id, asset_name)` with `asset_name = ''` marking the policy-wide patch row). Empty string instead of NULL so the UNIQUE KEY actually enforces one-per-(policy, asset). Schema version flag in `cardano_mint_asset_upgrade_schema_version`.
+- New table `wp_cardano_asset_upgrade_log` (append-only event log; see audit log above).
+- Both created on activation and re-verified via the same `admin_init` JIT-migration pattern AltPay uses.
+
+### Docs
+- `docs/BUILD_PLAN.md` — feature design, architecture, phases, schema, REST contract, locked decisions, acceptance criteria, OOS list.
+- `docs/DECISIONS.md` — the 8 locked decisions (AU-D1 through AU-D8) the feature is built on.
+
+### Known unverified
+- Anvil's exact field shape for negative-quantity mint operations (we send `quantity: -1` on a CIP-25 entry; needs sandbox confirmation on preprod before mainnet rollout).
+- CIP-30 `signTx(tx, true)` return shape varies (Eternl returns a witness set, Lace returns a full tx). The server hands whatever the wallet returned to `CardanoCLI::signTransaction`; if a sandbox round shows we need to merge witness sets explicitly, we'll add a witness-merge step.
+
 ## [4.1.0] - 2026-05-01
 
 Adds ADA as a fourth chain in the Payment Wallets surface (custodial receive), a 2FA gate on the Payment Wallets page, and a richer dashboard with Blockfrost-backed balances, send-funds via Anvil, and per-wallet receive-address display + copy for every chain.
