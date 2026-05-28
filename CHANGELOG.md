@@ -28,8 +28,10 @@ Adds the **Asset Upgrade** subsystem: a per-asset CIP-25 metadata refresh flow t
 - `docs/DECISIONS.md` — the 8 locked decisions (AU-D1 through AU-D8) the feature is built on.
 
 ### Known unverified
-- Anvil's exact field shape for negative-quantity mint operations (we send `quantity: -1` on a CIP-25 entry; needs sandbox confirmation on preprod before mainnet rollout).
 - CIP-30 `signTx(tx, true)` return shape varies (Eternl returns a witness set, Lace returns a full tx). The server hands whatever the wallet returned to `CardanoCLI::signTransaction`; if a sandbox round shows we need to merge witness sets explicitly, we'll add a witness-merge step.
+
+### Verified
+- **Anvil burn payload shape**: `quantity: -1` on a CIP-25 mint entry (same shape as our existing positive-quantity mint flow, just with the negative). Confirmed by pb 2026-05-27 — the mint endpoint accepts negative quantities natively.
 
 ## [4.1.0] - 2026-05-01
 
