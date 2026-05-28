@@ -288,6 +288,67 @@ class AssetUpgradeService {
         return ['ok' => true, 'tx_hash' => $tx_hash];
     }
 
+    /**
+     * Confirmation watcher tick. Walks every 'submitted' audit row that
+     * doesn't already have a paired 'confirmed' row, queries Blockfrost
+     * for the tx hash, and inserts a 'confirmed' event when the tx has
+     * landed in a block.
+     *
+     * Registered to fire on the WP-Cron hook 'cardano_asset_upgrade_confirm_tick'
+     * with a 5-minute interval (see cardano-nft-checkout.php for the
+     * schedule wiring). Safe to call manually for testing.
+     */
+    public static function confirmation_tick(): void {
+        global $wpdb;
+        $log_table  = self::table_log();
+        $spec_table = self::table_specs();
+
+        // Pick up 'submitted' rows that don't yet have a matching
+        // 'confirmed' or 'failed' row for the same tx_hash. Limit so a
+        // single tick never burns the rate-limit budget on a giant backlog.
+        $rows = $wpdb->get_results(
+            "SELECT l.id, l.policy_id, l.asset_name, l.wallet_address, l.tx_hash
+             FROM $log_table l
+             WHERE l.status = 'submitted'
+               AND l.tx_hash IS NOT NULL AND l.tx_hash != ''
+               AND NOT EXISTS (
+                   SELECT 1 FROM $log_table l2
+                   WHERE l2.tx_hash = l.tx_hash
+                     AND l2.status IN ('confirmed','failed')
+               )
+             ORDER BY l.id ASC
+             LIMIT 25",
+            ARRAY_A
+        );
+        if (empty($rows)) return;
+
+        // Group by policy so we can resolve network once per policy.
+        $networks = [];
+        foreach ($rows as $r) {
+            if (isset($networks[$r['policy_id']])) continue;
+            $networks[$r['policy_id']] = (string) $wpdb->get_var($wpdb->prepare(
+                "SELECT network FROM $spec_table WHERE policy_id = %s AND asset_name = '' LIMIT 1",
+                $r['policy_id']
+            ));
+        }
+
+        foreach ($rows as $r) {
+            $network = $networks[$r['policy_id']] ?? '';
+            if ($network === '') continue;
+
+            $resp = BlockfrostClient::getTransaction((string) $r['tx_hash'], $network);
+            if (!$resp['ok']) {
+                // 404 just means "not yet" — leave it for the next tick.
+                if (($resp['status'] ?? 0) === 404) continue;
+                // Any other failure: log once as 'failed' so we stop polling.
+                self::log_event(null, (string) $r['policy_id'], (string) $r['asset_name'], (string) $r['wallet_address'], (string) $r['tx_hash'], 'failed', 'confirmation lookup: ' . ($resp['error'] ?? 'unknown'));
+                continue;
+            }
+            // Got a tx record — it's on-chain.
+            self::log_event(null, (string) $r['policy_id'], (string) $r['asset_name'], (string) $r['wallet_address'], (string) $r['tx_hash'], 'confirmed', null);
+        }
+    }
+
     /* ─── helpers ──────────────────────────────────────────────────────── */
 
     /**

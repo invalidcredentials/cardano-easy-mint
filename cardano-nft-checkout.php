@@ -78,6 +78,38 @@ require_once plugin_dir_path(__FILE__) . 'includes/controllers/AssetUpgradePubli
 \CardanoMintPay\Controllers\AssetUpgradeAdminController::register();
 \CardanoMintPay\Controllers\AssetUpgradePublicController::register();
 
+// Asset Upgrade confirmation watcher. 5-min cron flips 'submitted' audit
+// rows to 'confirmed' once the burn-and-re-mint tx lands on-chain.
+add_action('cardano_asset_upgrade_confirm_tick', ['\\CardanoMintPay\\AssetUpgrade\\AssetUpgradeService', 'confirmation_tick']);
+
+register_activation_hook(__FILE__, function () {
+    if (!wp_next_scheduled('cardano_asset_upgrade_confirm_tick')) {
+        wp_schedule_event(time() + 60, 'fiveminutes', 'cardano_asset_upgrade_confirm_tick');
+    }
+});
+register_deactivation_hook(__FILE__, function () {
+    $next = wp_next_scheduled('cardano_asset_upgrade_confirm_tick');
+    if ($next) wp_unschedule_event($next, 'cardano_asset_upgrade_confirm_tick');
+});
+
+// Custom cron interval. WP only ships hourly/daily/twicedaily by default.
+add_filter('cron_schedules', function ($schedules) {
+    if (empty($schedules['fiveminutes'])) {
+        $schedules['fiveminutes'] = ['interval' => 5 * MINUTE_IN_SECONDS, 'display' => 'Every 5 minutes'];
+    }
+    return $schedules;
+});
+
+// Belt-and-suspenders: if the cron event was missed (activation hook didn't
+// fire because the plugin was deployed via git pull rather than re-activated),
+// schedule it on admin_init. Mirrors the same JIT pattern as the schema
+// installers.
+add_action('admin_init', function () {
+    if (!wp_next_scheduled('cardano_asset_upgrade_confirm_tick')) {
+        wp_schedule_event(time() + 60, 'fiveminutes', 'cardano_asset_upgrade_confirm_tick');
+    }
+});
+
 /**
  * [cardano-upgrade] shortcode. Renders the customer-facing upgrade button
  * + modal. See includes/views/asset-upgrade/shortcode.php for the markup

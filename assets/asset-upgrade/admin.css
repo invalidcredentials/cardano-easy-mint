@@ -41,3 +41,8 @@
 
 .kg-au-edit .kg-au-per-asset code { background: #f0f0f1; padding: 2px 5px; border-radius: 3px; }
 .kg-au-edit .kg-au-per-asset .kg-au-row-status { min-width: 110px; }
+
+.kg-au-edit .kg-au-history code { background: #f0f0f1; padding: 2px 5px; border-radius: 3px; }
+.kg-au-edit .kg-au-history th,
+.kg-au-edit .kg-au-history td { vertical-align: middle; }
+.kg-au-edit .kg-au-history td:nth-child(6) { max-width: 280px; word-break: break-word; color: #b32d2e; font-size: 12px; }
