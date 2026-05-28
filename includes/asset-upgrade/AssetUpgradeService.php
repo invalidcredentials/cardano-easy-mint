@@ -144,6 +144,20 @@ class AssetUpgradeService {
             return ['ok' => false, 'error' => 'Could not normalize customer address.', 'stage' => 'address_parse'];
         }
 
+        // Multi-quantity guard: CIP-25 NFTs are 1-of-1 by design. If the
+        // on-chain quantity for this asset is > 1, the asset is fungible
+        // and our burn(-1)+mint(+1) pattern would leave the customer with
+        // n-1 old tokens + 1 new token — almost certainly not what they
+        // want. Refuse rather than silently produce a confusing result.
+        $unit = $policy_id . $asset_name;
+        $asset_resp = BlockfrostClient::assetMetadata($unit, (string) $policy_row['network']);
+        if ($asset_resp['ok'] && isset($asset_resp['data']['quantity'])) {
+            $qty = (string) $asset_resp['data']['quantity'];
+            if ($qty !== '1') {
+                return ['ok' => false, 'error' => "Asset has on-chain quantity {$qty}, not 1. Burn-and-re-mint is only safe for 1-of-1 CIP-25 NFTs.", 'stage' => 'multi_quantity'];
+            }
+        }
+
         // Step 4: compose the Anvil request. Asset name is hex in our DB
         // and on-chain; we use format='hex' so we don't have to round-trip
         // through ASCII (which would fail for non-ASCII asset names).
