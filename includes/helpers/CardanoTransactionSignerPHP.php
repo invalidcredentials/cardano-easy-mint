@@ -8,6 +8,8 @@
 
 namespace CardanoMintPay\Helpers;
 
+if ( class_exists( __NAMESPACE__ . '\\CardanoTransactionSignerPHP', false ) ) return;
+
 require_once __DIR__ . '/Ed25519Compat.php';
 
 class CardanoTransactionSignerPHP

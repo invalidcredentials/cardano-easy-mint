@@ -4,6 +4,7 @@ namespace CardanoMintPay\AltPay;
 use CardanoMintPay\AltPay\Lib\Bn;
 
 if (!defined('ABSPATH')) exit;
+if ( class_exists( __NAMESPACE__ . '\\Slip10Ed25519', false ) ) return;
 
 /**
  * SLIP-0010 ed25519 derivation, used by Solana.
