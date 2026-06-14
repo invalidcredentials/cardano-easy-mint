@@ -2,6 +2,18 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.3.1] - 2026-06-13
+
+Fixes the **Advanced → Skey + Script / Full Manual** policy import on the Policy Wallet page, which rejected valid input with a generic "Invalid native script JSON" error.
+
+### Fixed
+- **Import accepts the full policy wrapper, not just the bare native script.** Our own policy-derivation tooling exports `{policyId, script, schema, policyKeyHash, signers}`, where the native script lives under `schema`. The importer previously required a top-level `type` field and bailed on the wrapper. It now auto-unwraps the `schema` object, so the exported policy JSON can be pasted as-is. Bare native scripts (`{"type":"all",...}`) still work unchanged.
+- **Multisig signer validation.** Key-against-script validation walked the script for the *first* `sig` keyHash only and compared against that one hash. For `any` / `atLeast` multisig policies this falsely rejected a signing key that was a legitimate signer further down the script. It now collects *every* signer keyHash and accepts the key if it matches **any** of them.
+- **Actionable parse errors.** `json_decode` failures now surface `json_last_error_msg()` plus a hint to paste the bare script; structural failures (no resolvable `type`) say so explicitly instead of one catch-all message. Input is also tolerated for a leading UTF-8 BOM and smart/curly quotes from copy-paste.
+
+### Notes
+- Native-script policy IDs are network-independent (blake2b of the script bytes), so a preprod-vs-mainnet setting never affects whether an imported policy ID resolves correctly — only slot→expiration conversion and mint-time tx building are network-sensitive.
+
 ## [4.3.0] - 2026-05-27
 
 Adds the **Asset Upgrade** subsystem: a per-asset CIP-25 metadata refresh flow that burns the existing NFT and re-mints the same asset name with new metadata in a single transaction. Customer connects their wallet, picks an eligible NFT, signs once — same fingerprint, new metadata.
