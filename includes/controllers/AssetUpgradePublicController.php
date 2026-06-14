@@ -131,6 +131,12 @@ class AssetUpgradePublicController {
     }
 
     private static function eligible_impl(\WP_REST_Request $req) {
+        $t0 = microtime(true);
+        $log = function ($msg) use ($t0) {
+            error_log(sprintf('[asset-upgrade:eligible] +%.1fs %s', microtime(true) - $t0, $msg));
+        };
+        $log('start');
+
         $address_in = (string) $req->get_param('address');
         if ($address_in === '') {
             return new \WP_REST_Response(['error' => 'address is required'], 400);
@@ -138,11 +144,13 @@ class AssetUpgradePublicController {
 
         // Normalize. AnvilAPI handles both payment + stake hex; if it's
         // already bech32 it short-circuits and returns as-is.
+        $log('before address normalize (Anvil parse)');
         $address = AnvilAPI::convertAddressToBech32($address_in);
         if (!is_string($address) || $address === '') {
             return new \WP_REST_Response(['error' => 'address could not be parsed'], 400);
         }
         $is_stake = str_starts_with($address, 'stake1') || str_starts_with($address, 'stake_test1');
+        $log('address normalized, is_stake=' . ($is_stake ? '1' : '0') . ' prefix=' . substr($address, 0, 12));
 
         // Pull all active policy-wide rows + their per-asset rows in one shot.
         global $wpdb;
@@ -153,6 +161,7 @@ class AssetUpgradePublicController {
              WHERE status = 'active'",
             ARRAY_A
         );
+        $log('active specs rows=' . count($rows));
         if (empty($rows)) {
             return new \WP_REST_Response(['assets' => []], 200);
         }
@@ -187,6 +196,7 @@ class AssetUpgradePublicController {
         $networks_needed = array_unique(array_column($by_policy, 'network'));
         $holdings = []; // network => [unit => quantity]
         foreach ($networks_needed as $network) {
+            $log('fetching wallet assets on ' . $network . ' (Blockfrost, paginated)…');
             $resp = $is_stake
                 ? BlockfrostClient::assetsAtStakeAddress($address, $network)
                 : self::assetsAtPaymentAddress($address, $network);
@@ -201,9 +211,19 @@ class AssetUpgradePublicController {
                 if (!isset($h['unit'])) continue;
                 $holdings[$network][(string) $h['unit']] = isset($h['quantity']) ? (string) $h['quantity'] : '0';
             }
+            $log('wallet holds ' . count($holdings[$network]) . ' distinct assets on ' . $network);
         }
 
         // Match holdings to active specs.
+        //
+        // Each match may cost one Blockfrost call to fetch current metadata
+        // for the diff. To avoid an N+1 that runs past the PHP-FPM
+        // request_terminate_timeout (which kills the worker -> 502), we cap
+        // the number of per-asset metadata fetches per request. Anything
+        // beyond the cap is still returned as eligible, just without the
+        // pre-fetched `current` (the build/diff step can fetch it lazily).
+        $META_FETCH_CAP = 30;
+        $meta_fetches = 0;
         $eligible = [];
         foreach ($by_policy as $policy_id => $cfg) {
             // Skip permanently locked policies — refuse rather than let
@@ -220,6 +240,7 @@ class AssetUpgradePublicController {
                 $resolved = null;
                 $upgrade_id = null;
                 $resolved_from = '';
+                $current = null;
 
                 if (isset($cfg['per_asset'][$asset_name])) {
                     $resolved = $cfg['per_asset'][$asset_name]['metadata'];
@@ -227,7 +248,10 @@ class AssetUpgradePublicController {
                     $resolved_from = 'per_asset_full';
                 } elseif (is_array($cfg['patch']) && !empty($cfg['patch'])) {
                     // We need current chain metadata to apply the patch.
+                    if ($meta_fetches >= $META_FETCH_CAP) { $log('META_FETCH_CAP hit, stopping patch resolves'); break 2; }
+                    $log('blockfrost assetMetadata #' . ($meta_fetches + 1) . ' (patch) ' . substr($unit, 0, 70));
                     $meta_resp = BlockfrostClient::assetMetadata($unit, $network);
+                    $meta_fetches++;
                     if (!$meta_resp['ok']) continue; // skip silently; customer doesn't care which one couldn't load
                     $current = isset($meta_resp['data']['onchain_metadata']) && is_array($meta_resp['data']['onchain_metadata'])
                         ? $meta_resp['data']['onchain_metadata']
@@ -238,12 +262,20 @@ class AssetUpgradePublicController {
                     continue; // active row but no usable metadata
                 }
 
-                // Always fetch current — front-end needs it for the diff.
-                if ($resolved_from === 'per_asset_full' && !isset($current)) {
-                    $meta_resp = BlockfrostClient::assetMetadata($unit, $network);
-                    $current = ($meta_resp['ok'] && isset($meta_resp['data']['onchain_metadata']) && is_array($meta_resp['data']['onchain_metadata']))
-                        ? $meta_resp['data']['onchain_metadata']
-                        : [];
+                // For per-asset matches, fetch current for the diff — but only
+                // up to the cap. Past it, return with current=[] and let the
+                // diff/build step resolve it lazily.
+                if ($resolved_from === 'per_asset_full' && $current === null) {
+                    if ($meta_fetches < $META_FETCH_CAP) {
+                        $log('blockfrost assetMetadata #' . ($meta_fetches + 1) . ' (per-asset) ' . substr($unit, 0, 70));
+                        $meta_resp = BlockfrostClient::assetMetadata($unit, $network);
+                        $meta_fetches++;
+                        $current = ($meta_resp['ok'] && isset($meta_resp['data']['onchain_metadata']) && is_array($meta_resp['data']['onchain_metadata']))
+                            ? $meta_resp['data']['onchain_metadata']
+                            : [];
+                    } else {
+                        $current = [];
+                    }
                 }
 
                 $eligible[] = [
@@ -262,6 +294,7 @@ class AssetUpgradePublicController {
             }
         }
 
+        $log('done, eligible=' . count($eligible) . ' meta_fetches=' . $meta_fetches);
         return new \WP_REST_Response(['assets' => $eligible], 200);
     }
 
