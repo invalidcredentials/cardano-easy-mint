@@ -50,6 +50,11 @@ class AssetUpgradePublicController {
                 'customer_address' => ['required' => true, 'type' => 'string'],
             ],
         ]);
+        register_rest_route(self::NAMESPACE, '/upgrade/diag', [
+            'methods'             => 'GET',
+            'callback'            => [self::class, 'route_diag'],
+            'permission_callback' => '__return_true',
+        ]);
         register_rest_route(self::NAMESPACE, '/upgrade/submit', [
             'methods'             => 'POST',
             'callback'            => [self::class, 'route_submit'],
@@ -80,6 +85,35 @@ class AssetUpgradePublicController {
                 'stage' => 'exception',
             ], 500);
         }
+    }
+
+    /**
+     * Lightweight diagnostics. Does NO external calls, so it can't crash the
+     * way /upgrade/eligible does. Returns the environment facts that matter
+     * for the 502 plus the last breadcrumb the eligible handler wrote before
+     * it died. No secrets — only booleans for whether keys are configured.
+     */
+    public static function route_diag(\WP_REST_Request $req) {
+        global $wpdb;
+        $specs_table = AssetUpgradeInstaller::table_specs();
+        $active = (int) $wpdb->get_var("SELECT COUNT(*) FROM $specs_table WHERE status = 'active'");
+
+        return new \WP_REST_Response([
+            'ok'                 => true,
+            'plugin_version'     => defined('CARDANO_MINT_VERSION') ? CARDANO_MINT_VERSION : 'unknown',
+            'php_version'        => PHP_VERSION,
+            'memory_limit'       => ini_get('memory_limit'),
+            'max_execution_time' => ini_get('max_execution_time'),
+            'network_setting'    => get_option('cardano-mint-networkenvironment', 'preprod'),
+            'blockfrost'         => [
+                'mainnet' => BlockfrostClient::isConfiguredFor('mainnet'),
+                'preprod' => BlockfrostClient::isConfiguredFor('preprod'),
+                'preview' => BlockfrostClient::isConfiguredFor('preview'),
+            ],
+            'anvil_mint_key_set' => (bool) get_option('cardano_mint_anvil_api_key'),
+            'active_specs'       => $active,
+            'last_eligible_trace'=> get_option('cem_upgrade_eligible_trace', null),
+        ], 200);
     }
 
     public static function route_build(\WP_REST_Request $req) {
@@ -132,8 +166,17 @@ class AssetUpgradePublicController {
 
     private static function eligible_impl(\WP_REST_Request $req) {
         $t0 = microtime(true);
+        // Breadcrumb: every checkpoint is written to a committed DB option AND
+        // the PHP error log. A 502 means the worker was killed mid-request, so
+        // the in-memory log never flushes anywhere we can see — but the last
+        // committed option survives. Read it back via GET /upgrade/diag.
         $log = function ($msg) use ($t0) {
-            error_log(sprintf('[asset-upgrade:eligible] +%.1fs %s', microtime(true) - $t0, $msg));
+            $line = sprintf('+%.1fs %s', microtime(true) - $t0, $msg);
+            error_log('[asset-upgrade:eligible] ' . $line);
+            update_option('cem_upgrade_eligible_trace', [
+                'at'    => gmdate('Y-m-d H:i:s') . ' UTC',
+                'stage' => $line,
+            ], false);
         };
         $log('start');
 
