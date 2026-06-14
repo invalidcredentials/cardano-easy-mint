@@ -2,6 +2,14 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.3.4] - 2026-06-14
+
+The N+1 cap (4.3.3) didn't clear the `/upgrade/eligible` 502, so the worker is dying earlier than the per-asset loop. Adds self-service diagnostics that don't require server-log access.
+
+### Added
+- **DB breadcrumb trace.** Each eligibility checkpoint now writes a committed `cem_upgrade_eligible_trace` option (stage + elapsed seconds + UTC time), in addition to the error_log line. A committed DB write survives the worker being killed, so the last stored stage is exactly where the request died.
+- **`GET /cardano-mint/v1/upgrade/diag`.** A dependency-free endpoint (no external calls, can't crash like eligible) that returns PHP version, `memory_limit`, `max_execution_time`, Blockfrost configured-per-network booleans, Anvil mint key set (boolean), active-spec count, and the last eligibility breadcrumb. Reproduce the 502, then open this URL to see how far eligible got and whether the environment is configured. No secrets are exposed — only booleans.
+
 ## [4.3.3] - 2026-06-14
 
 Diagnoses and mitigates a Cloudflare **502** on `/upgrade/eligible` — the PHP-FPM worker was being killed (timeout/OOM) before it could return, so no JSON came back. A 502 is an origin worker death, not a catchable PHP error, so the 4.3.2 try/catch guard couldn't surface it.
