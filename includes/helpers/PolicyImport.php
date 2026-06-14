@@ -145,7 +145,7 @@ class PolicyImport {
         }
 
         // Serialize the script via Anvil to get the policy ID.
-        $serialize_result = AnvilAPI::call( 'utils/native-scripts/serialize', $script, 'mint' );
+        $serialize_result = AnvilAPI::call( 'utils/native-scripts/serialize', array( 'schema' => $script ), 'mint' );
         if ( is_wp_error( $serialize_result ) ) {
             return new \WP_Error( 'serialize_failed', 'Failed to serialize policy script: ' . $serialize_result->get_error_message() );
         }
@@ -281,7 +281,7 @@ class PolicyImport {
         );
 
         // Serialize via Anvil.
-        $serialize_result = AnvilAPI::call( 'utils/native-scripts/serialize', $script, 'mint' );
+        $serialize_result = AnvilAPI::call( 'utils/native-scripts/serialize', array( 'schema' => $script ), 'mint' );
         if ( is_wp_error( $serialize_result ) ) {
             return new \WP_Error( 'serialize_failed', 'Failed to serialize policy script: ' . $serialize_result->get_error_message() );
         }
@@ -346,7 +346,7 @@ class PolicyImport {
         if ( is_wp_error( $script ) ) return $script;
 
         // Verify policy ID matches by serializing the script.
-        $serialize_result = AnvilAPI::call( 'utils/native-scripts/serialize', $script, 'mint' );
+        $serialize_result = AnvilAPI::call( 'utils/native-scripts/serialize', array( 'schema' => $script ), 'mint' );
         if ( ! is_wp_error( $serialize_result ) ) {
             $derived_policy_id = $serialize_result['policyId'] ?? '';
             if ( $derived_policy_id && $derived_policy_id !== $policy_id ) {
