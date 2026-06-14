@@ -73,6 +73,48 @@ class PolicyImport {
     }
 
     /**
+     * Decode and normalize a pasted native script JSON string.
+     *
+     * Accepts either a bare native script ({"type":"all",...}) or a wrapper
+     * object that contains the script under a "schema" key (the format our own
+     * policy-derivation tool exports: {"policyId":...,"script":...,"schema":{...}}).
+     * Also strips a UTF-8 BOM and normalizes smart/curly quotes that sneak in
+     * when pasting from docs.
+     *
+     * @param string $script_input Raw pasted JSON.
+     * @return array|\WP_Error     The bare native script array, or error with detail.
+     */
+    private static function parse_native_script( string $script_input ) {
+        $raw = trim( $script_input );
+
+        // Strip UTF-8 BOM.
+        $raw = preg_replace( '/^\xEF\xBB\xBF/', '', $raw );
+
+        // Normalize curly/smart quotes to straight quotes.
+        $raw = str_replace(
+            array( "\xE2\x80\x9C", "\xE2\x80\x9D", "\xE2\x80\x98", "\xE2\x80\x99" ),
+            '"',
+            $raw
+        );
+
+        $decoded = json_decode( $raw, true );
+        if ( ! is_array( $decoded ) ) {
+            return new \WP_Error( 'script_parse', 'Invalid native script JSON — could not parse: ' . json_last_error_msg() );
+        }
+
+        // Auto-unwrap our export format: bare script lives under "schema".
+        if ( empty( $decoded['type'] ) && ! empty( $decoded['schema']['type'] ) ) {
+            $decoded = $decoded['schema'];
+        }
+
+        if ( empty( $decoded['type'] ) ) {
+            return new \WP_Error( 'script_parse', 'Invalid native script JSON — no top-level "type" field. Paste the bare native script (e.g. the "schema" object), not the full policy wrapper.' );
+        }
+
+        return $decoded;
+    }
+
+    /**
      * Import an external policy using skey + native script JSON.
      *
      * @param string $name         Wallet name.
@@ -86,21 +128,19 @@ class PolicyImport {
         if ( is_wp_error( $skey_hex ) ) return $skey_hex;
 
         // Parse the script.
-        $script = json_decode( $script_input, true );
-        if ( ! $script || empty( $script['type'] ) ) {
-            return new \WP_Error( 'script_parse', 'Invalid native script JSON.' );
-        }
+        $script = self::parse_native_script( $script_input );
+        if ( is_wp_error( $script ) ) return $script;
 
-        // Derive keyhash from skey and validate it matches the script.
+        // Derive keyhash from skey and validate it is one of the script's signers.
         $derived_keyhash = self::derive_keyhash( $skey_hex );
         if ( is_wp_error( $derived_keyhash ) ) return $derived_keyhash;
 
-        $script_keyhash = self::extract_keyhash_from_script( $script );
-        if ( $script_keyhash && $script_keyhash !== $derived_keyhash ) {
+        $script_keyhashes = self::extract_keyhashes_from_script( $script );
+        if ( ! empty( $script_keyhashes ) && ! in_array( $derived_keyhash, $script_keyhashes, true ) ) {
             return new \WP_Error( 'key_script_mismatch', sprintf(
-                'Signing key keyhash (%s) does not match the script keyHash (%s).',
+                'Signing key keyhash (%s) is not one of the script signers (%s).',
                 substr( $derived_keyhash, 0, 16 ) . '...',
-                substr( $script_keyhash, 0, 16 ) . '...'
+                implode( ', ', array_map( function ( $kh ) { return substr( $kh, 0, 16 ) . '...'; }, $script_keyhashes ) )
             ) );
         }
 
@@ -302,10 +342,8 @@ class PolicyImport {
         if ( is_wp_error( $skey_hex ) ) return $skey_hex;
 
         // Parse script.
-        $script = json_decode( $script_input, true );
-        if ( ! $script || empty( $script['type'] ) ) {
-            return new \WP_Error( 'script_parse', 'Invalid native script JSON.' );
-        }
+        $script = self::parse_native_script( $script_input );
+        if ( is_wp_error( $script ) ) return $script;
 
         // Verify policy ID matches by serializing the script.
         $serialize_result = AnvilAPI::call( 'utils/native-scripts/serialize', $script, 'mint' );
@@ -381,22 +419,28 @@ class PolicyImport {
     }
 
     /**
-     * Extract the keyHash from a native script's sig requirement.
-     * Walks nested scripts to find the first sig entry.
+     * Extract every keyHash from a native script's sig requirements.
+     * Walks nested scripts (all/any/atLeast) and collects all sig entries, so a
+     * multisig policy is matched if the signing key is ANY one of its signers.
+     *
+     * @return string[] List of 56-char hex keyhashes (may be empty).
      */
-    private static function extract_keyhash_from_script( array $script ): ?string {
+    private static function extract_keyhashes_from_script( array $script ): array {
+        $hashes = array();
+
         if ( ( $script['type'] ?? '' ) === 'sig' && ! empty( $script['keyHash'] ) ) {
-            return $script['keyHash'];
+            $hashes[] = $script['keyHash'];
         }
 
         if ( ! empty( $script['scripts'] ) && is_array( $script['scripts'] ) ) {
             foreach ( $script['scripts'] as $sub ) {
-                $found = self::extract_keyhash_from_script( $sub );
-                if ( $found ) return $found;
+                if ( is_array( $sub ) ) {
+                    $hashes = array_merge( $hashes, self::extract_keyhashes_from_script( $sub ) );
+                }
             }
         }
 
-        return null;
+        return array_values( array_unique( $hashes ) );
     }
 
     /**
