@@ -2,6 +2,16 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.3.3] - 2026-06-14
+
+Diagnoses and mitigates a Cloudflare **502** on `/upgrade/eligible` — the PHP-FPM worker was being killed (timeout/OOM) before it could return, so no JSON came back. A 502 is an origin worker death, not a catchable PHP error, so the 4.3.2 try/catch guard couldn't surface it.
+
+### Changed
+- **Capped the eligibility N+1.** `route_eligible` fetched current on-chain metadata via a **separate Blockfrost call per matching asset**, on top of walking the wallet's full asset list (up to 200 paginated calls). On a large wallet this ran past PHP-FPM's `request_terminate_timeout` and the worker was killed → 502. Per-asset metadata fetches are now capped (30/request); assets beyond the cap are still returned eligible with `current` resolved lazily at the diff/build step.
+
+### Added
+- **Checkpoint logging through the eligibility path** (`[asset-upgrade:eligible]` with elapsed seconds): address normalize, active-spec count, wallet-asset count, and each Blockfrost metadata call. Plus per-page timing in `BlockfrostClient::assetsAtStakeAddress` (`[asset-upgrade:blockfrost]`). Because a worker death can't be caught in PHP, the last log line before the gap pinpoints exactly which call killed the request.
+
 ## [4.3.2] - 2026-06-13
 
 Fixes the **Asset Upgrade** customer flow (`[cardano-upgrade]`) failing with a browser-side `Unexpected token '<', "<!DOCTYPE"... is not valid JSON`, and a build-path bug that prevented imported policies from being upgraded.
