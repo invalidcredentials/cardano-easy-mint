@@ -2,6 +2,17 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.3.2] - 2026-06-13
+
+Fixes the **Asset Upgrade** customer flow (`[cardano-upgrade]`) failing with a browser-side `Unexpected token '<', "<!DOCTYPE"... is not valid JSON`, and a build-path bug that prevented imported policies from being upgraded.
+
+### Fixed
+- **Imported-policy script lookup.** `AssetUpgradeService::load_policy_script_json()` read a non-existent `policy_json` column on the `cardano_mint_policies` table, so policies brought in via the Policy Wallet skey+script importer were never found and the build refused with "Policy script JSON not available locally." It now reads `policy_schema` (where imports actually store the native script), keeping the active-mints `policy_json` fallback for plugin-minted collections.
+
+### Added
+- **Crash-to-JSON guard on the upgrade REST routes.** `route_eligible` / `route_build` / `route_submit` now run inside a try/catch that converts any uncaught `Throwable` into a JSON `{ ok:false, error:"<message> @ file:line" }` (HTTP 500) and `error_log`s the trace. Previously an uncaught fatal let WordPress serve its HTML "critical error" page, which the frontend `fetch().json()` choked on with the `<!DOCTYPE` parse error — hiding the real cause.
+- **Non-JSON response handling in `upgrade.js`.** `parseJson` now reads the body as text and, when it isn't valid JSON, surfaces `"Server returned a non-JSON response (HTTP <status>): <snippet>"` instead of the opaque `Unexpected token '<'`. `fetchEligible` routes through the same helper.
+
 ## [4.3.1] - 2026-06-13
 
 Fixes the **Advanced → Skey + Script / Full Manual** policy import on the Policy Wallet page, which rejected valid input with a generic "Invalid native script JSON" error.

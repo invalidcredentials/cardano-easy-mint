@@ -390,9 +390,15 @@ class AssetUpgradeService {
      */
     private static function load_policy_script_json(string $policy_id) {
         $imported = MintModel::getMintPolicyByPolicyId($policy_id);
-        if ($imported && !empty($imported['policy_json'])) {
-            $decoded = json_decode((string) $imported['policy_json'], true);
-            if (is_array($decoded)) return $decoded;
+        // Imported policies store the native script JSON in `policy_schema`
+        // (the cardano_mint_policies table has no `policy_json` column —
+        // that belongs to the active-mints table handled in the fallback).
+        if ($imported) {
+            $raw = $imported['policy_schema'] ?? ($imported['policy_json'] ?? '');
+            if (!empty($raw)) {
+                $decoded = json_decode((string) $raw, true);
+                if (is_array($decoded)) return $decoded;
+            }
         }
         // Active mints fallback.
         global $wpdb;

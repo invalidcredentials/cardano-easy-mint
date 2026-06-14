@@ -134,7 +134,16 @@
     }
 
     function parseJson(r) {
-        return r.json().then(function (body) {
+        return r.text().then(function (text) {
+            var body;
+            try {
+                body = JSON.parse(text);
+            } catch (e) {
+                // Server returned HTML (a PHP fatal / 404 page) instead of JSON.
+                // Surface the status + a snippet so the real cause is visible.
+                throw new Error('Server returned a non-JSON response (HTTP ' + r.status + '). ' +
+                    String(text).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300));
+            }
             if (!r.ok && !(body && body.error)) {
                 throw new Error('HTTP ' + r.status);
             }
@@ -258,11 +267,10 @@
             body: JSON.stringify({ address: addressHex }),
             credentials: 'same-origin'
         })
-        .then(function (r) {
-            return r.json().then(function (body) {
-                if (!r.ok) throw new Error((body && body.error) ? body.error : ('HTTP ' + r.status));
-                return body.assets || [];
-            });
+        .then(parseJson)
+        .then(function (body) {
+            if (body && body.error) throw new Error(body.error);
+            return (body && body.assets) || [];
         });
     }
 
