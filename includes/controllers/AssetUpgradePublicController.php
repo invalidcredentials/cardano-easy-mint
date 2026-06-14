@@ -61,21 +61,46 @@ class AssetUpgradePublicController {
         ]);
     }
 
+    /**
+     * Run a REST handler body, converting any uncaught Throwable into a JSON
+     * error response instead of letting it bubble up to WP's HTML "critical
+     * error" page (which makes the browser fetch fail with "Unexpected token
+     * '<'"). The exact message + file:line is returned and error_log'd so the
+     * real cause is visible client-side and in the server log.
+     */
+    private static function guard(callable $fn): \WP_REST_Response {
+        try {
+            return $fn();
+        } catch (\Throwable $e) {
+            $detail = $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine();
+            error_log('[asset-upgrade] uncaught: ' . $detail . "\n" . $e->getTraceAsString());
+            return new \WP_REST_Response([
+                'ok'    => false,
+                'error' => 'Server error: ' . $detail,
+                'stage' => 'exception',
+            ], 500);
+        }
+    }
+
     public static function route_build(\WP_REST_Request $req) {
-        $policy_id  = (string) $req->get_param('policy_id');
-        $asset_name = (string) $req->get_param('asset_name');
-        $customer   = (string) $req->get_param('customer_address');
-        $result = AssetUpgradeService::build($policy_id, $asset_name, $customer);
-        $status = !empty($result['ok']) ? 200 : 400;
-        return new \WP_REST_Response($result, $status);
+        return self::guard(function () use ($req) {
+            $policy_id  = (string) $req->get_param('policy_id');
+            $asset_name = (string) $req->get_param('asset_name');
+            $customer   = (string) $req->get_param('customer_address');
+            $result = AssetUpgradeService::build($policy_id, $asset_name, $customer);
+            $status = !empty($result['ok']) ? 200 : 400;
+            return new \WP_REST_Response($result, $status);
+        });
     }
 
     public static function route_submit(\WP_REST_Request $req) {
-        $log_id        = (int) $req->get_param('log_id');
-        $signed_tx_hex = (string) $req->get_param('signed_tx_hex');
-        $result = AssetUpgradeService::submit($log_id, $signed_tx_hex);
-        $status = !empty($result['ok']) ? 200 : 400;
-        return new \WP_REST_Response($result, $status);
+        return self::guard(function () use ($req) {
+            $log_id        = (int) $req->get_param('log_id');
+            $signed_tx_hex = (string) $req->get_param('signed_tx_hex');
+            $result = AssetUpgradeService::submit($log_id, $signed_tx_hex);
+            $status = !empty($result['ok']) ? 200 : 400;
+            return new \WP_REST_Response($result, $status);
+        });
     }
 
     /**
@@ -100,6 +125,12 @@ class AssetUpgradePublicController {
      * ownership at the protocol level. Listing assets here is read-only.
      */
     public static function route_eligible(\WP_REST_Request $req) {
+        return self::guard(function () use ($req) {
+            return self::eligible_impl($req);
+        });
+    }
+
+    private static function eligible_impl(\WP_REST_Request $req) {
         $address_in = (string) $req->get_param('address');
         if ($address_in === '') {
             return new \WP_REST_Response(['error' => 'address is required'], 400);
