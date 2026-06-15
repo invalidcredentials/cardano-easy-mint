@@ -148,13 +148,11 @@ class BlockfrostClient {
         $all = [];
         $page = 1;
         while (true) {
-            $t = microtime(true);
             $resp = self::get(
                 '/accounts/' . rawurlencode($stakeAddress) . '/addresses/assets',
                 $network,
                 ['page' => $page, 'count' => 100]
             );
-            error_log(sprintf('[asset-upgrade:blockfrost] stake assets page %d -> ok=%s in %.1fs', $page, !empty($resp['ok']) ? '1' : '0', microtime(true) - $t));
             if (!$resp['ok']) {
                 // 404 from this endpoint means "stake address has never had
                 // on-chain activity" — treat as empty list, not an error.
