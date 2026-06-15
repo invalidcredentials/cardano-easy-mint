@@ -340,6 +340,21 @@ foreach ($mints as $mint) {
                                             $display_image_url = wp_get_attachment_url($asset['image_id']);
                                             $display_image_mime = get_post_mime_type($asset['image_id']);
                                             $border_color = '#2271b1'; // Blue for WordPress
+                                        } elseif (!empty($asset['nft_metadata'])) {
+                                            // Imported (verbatim) assets carry the image as an ipfs:// URI
+                                            // inside the metadata, with no WordPress attachment.
+                                            $meta_for_img = json_decode($asset['nft_metadata'], true);
+                                            if (is_array($meta_for_img) && !empty($meta_for_img['image'])) {
+                                                // CIP-25 image may be a single string or an array of <=64-char chunks.
+                                                $img_uri = is_array($meta_for_img['image']) ? implode('', $meta_for_img['image']) : (string) $meta_for_img['image'];
+                                                $display_image_url = (strpos($img_uri, 'ipfs://') === 0)
+                                                    ? 'https://ipfs.io/ipfs/' . substr($img_uri, 7)
+                                                    : $img_uri;
+                                                if (!empty($meta_for_img['mediaType'])) {
+                                                    $display_image_mime = (string) $meta_for_img['mediaType'];
+                                                }
+                                                $border_color = '#c9a84c'; // Gold for imported/verbatim
+                                            }
                                         }
 
                                         $is_video = $display_image_mime && strpos($display_image_mime, 'video/') === 0;
@@ -726,9 +741,18 @@ function viewMetadata(assetId) {
                 html += '<tbody>';
 
                 for (const [key, value] of Object.entries(metadata)) {
+                    // Nested values (files[], attributes{}, description[]) must be
+                    // rendered as readable JSON, not String(value) — which would
+                    // print "[object Object]" / comma-joined arrays.
+                    var cell;
+                    if (value !== null && typeof value === 'object') {
+                        cell = '<pre style="margin:0; white-space:pre-wrap; word-break:break-word; font-size:11px;">' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre>';
+                    } else {
+                        cell = escapeHtml(String(value));
+                    }
                     html += '<tr>';
-                    html += '<td style="padding: 10px; border: 1px solid #ddd; font-weight: 600; background: #fff;">' + escapeHtml(key) + '</td>';
-                    html += '<td style="padding: 10px; border: 1px solid #ddd; background: #fff; font-family: monospace; font-size: 12px;">' + escapeHtml(String(value)) + '</td>';
+                    html += '<td style="padding: 10px; border: 1px solid #ddd; font-weight: 600; background: #fff; vertical-align: top;">' + escapeHtml(key) + '</td>';
+                    html += '<td style="padding: 10px; border: 1px solid #ddd; background: #fff; font-family: monospace; font-size: 12px;">' + cell + '</td>';
                     html += '</tr>';
                 }
 
