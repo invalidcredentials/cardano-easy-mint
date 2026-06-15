@@ -52,11 +52,6 @@ class AssetUpgradePublicController {
                 'burn_log_id'      => ['required' => false, 'type' => 'integer'],  // links re-mint to its burn
             ],
         ]);
-        register_rest_route(self::NAMESPACE, '/upgrade/diag', [
-            'methods'             => 'GET',
-            'callback'            => [self::class, 'route_diag'],
-            'permission_callback' => '__return_true',
-        ]);
         register_rest_route(self::NAMESPACE, '/upgrade/submit', [
             'methods'             => 'POST',
             'callback'            => [self::class, 'route_submit'],
@@ -73,52 +68,20 @@ class AssetUpgradePublicController {
      * Run a REST handler body, converting any uncaught Throwable into a JSON
      * error response instead of letting it bubble up to WP's HTML "critical
      * error" page (which makes the browser fetch fail with "Unexpected token
-     * '<'"). The exact message + file:line is returned and error_log'd so the
-     * real cause is visible client-side and in the server log.
+     * '<'"). The full detail (message + file:line + trace) is error_log'd; the
+     * client only gets a generic message so we don't leak server paths.
      */
     private static function guard(callable $fn): \WP_REST_Response {
         try {
             return $fn();
         } catch (\Throwable $e) {
-            $detail = $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine();
-            error_log('[asset-upgrade] uncaught: ' . $detail . "\n" . $e->getTraceAsString());
+            error_log('[asset-upgrade] uncaught: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString());
             return new \WP_REST_Response([
                 'ok'    => false,
-                'error' => 'Server error: ' . $detail,
+                'error' => 'Server error while processing the upgrade. Please try again or contact support.',
                 'stage' => 'exception',
             ], 500);
         }
-    }
-
-    /**
-     * Lightweight diagnostics. Does NO external calls, so it can't crash the
-     * way /upgrade/eligible does. Returns the environment facts that matter
-     * for the 502 plus the last breadcrumb the eligible handler wrote before
-     * it died. No secrets — only booleans for whether keys are configured.
-     */
-    public static function route_diag(\WP_REST_Request $req) {
-        global $wpdb;
-        $specs_table = AssetUpgradeInstaller::table_specs();
-        $active = (int) $wpdb->get_var("SELECT COUNT(*) FROM $specs_table WHERE status = 'active'");
-
-        return new \WP_REST_Response([
-            'ok'                 => true,
-            'plugin_version'     => defined('CARDANO_MINT_VERSION') ? CARDANO_MINT_VERSION : 'unknown',
-            'php_version'        => PHP_VERSION,
-            'memory_limit'       => ini_get('memory_limit'),
-            'max_execution_time' => ini_get('max_execution_time'),
-            'network_setting'    => get_option('cardano-mint-networkenvironment', 'preprod'),
-            'blockfrost'         => [
-                'mainnet' => BlockfrostClient::isConfiguredFor('mainnet'),
-                'preprod' => BlockfrostClient::isConfiguredFor('preprod'),
-                'preview' => BlockfrostClient::isConfiguredFor('preview'),
-            ],
-            'anvil_mint_key_set' => (bool) get_option('cardano_mint_anvil_api_key'),
-            'active_specs'       => $active,
-            'last_eligible_trace'=> get_option('cem_upgrade_eligible_trace', null),
-            'last_build_trace'   => get_option('cem_upgrade_build_trace', null),
-            'last_submit_trace'  => get_option('cem_upgrade_submit_trace', null),
-        ], 200);
     }
 
     public static function route_build(\WP_REST_Request $req) {
@@ -178,21 +141,6 @@ class AssetUpgradePublicController {
     }
 
     private static function eligible_impl(\WP_REST_Request $req) {
-        $t0 = microtime(true);
-        // Breadcrumb: every checkpoint is written to a committed DB option AND
-        // the PHP error log. A 502 means the worker was killed mid-request, so
-        // the in-memory log never flushes anywhere we can see — but the last
-        // committed option survives. Read it back via GET /upgrade/diag.
-        $log = function ($msg) use ($t0) {
-            $line = sprintf('+%.1fs %s', microtime(true) - $t0, $msg);
-            error_log('[asset-upgrade:eligible] ' . $line);
-            update_option('cem_upgrade_eligible_trace', [
-                'at'    => gmdate('Y-m-d H:i:s') . ' UTC',
-                'stage' => $line,
-            ], false);
-        };
-        $log('start');
-
         $address_in = (string) $req->get_param('address');
         if ($address_in === '') {
             return new \WP_REST_Response(['error' => 'address is required'], 400);
@@ -206,12 +154,10 @@ class AssetUpgradePublicController {
         // AnvilAPI::convertAddressToBech32() only handles *payment* addresses
         // and returns a reward address unchanged, which used to make this fall
         // through to the unsupported payment-address path and 502.
-        $log('before address normalize');
         [$address, $is_stake] = self::normalize_stake_address($address_in);
         if ($address === '') {
             return new \WP_REST_Response(['error' => 'address could not be parsed'], 400);
         }
-        $log('address normalized, is_stake=' . ($is_stake ? '1' : '0') . ' prefix=' . substr($address, 0, 12));
 
         // Pull all active policy-wide rows + their per-asset rows in one shot.
         global $wpdb;
@@ -222,7 +168,6 @@ class AssetUpgradePublicController {
              WHERE status = 'active'",
             ARRAY_A
         );
-        $log('active specs rows=' . count($rows));
         if (empty($rows)) {
             return new \WP_REST_Response(['assets' => []], 200);
         }
@@ -257,7 +202,6 @@ class AssetUpgradePublicController {
         $networks_needed = array_unique(array_column($by_policy, 'network'));
         $holdings = []; // network => [unit => quantity]
         foreach ($networks_needed as $network) {
-            $log('fetching wallet assets on ' . $network . ' (Blockfrost, paginated)…');
             $resp = $is_stake
                 ? BlockfrostClient::assetsAtStakeAddress($address, $network)
                 : self::assetsAtPaymentAddress($address, $network);
@@ -272,7 +216,6 @@ class AssetUpgradePublicController {
                 if (!isset($h['unit'])) continue;
                 $holdings[$network][(string) $h['unit']] = isset($h['quantity']) ? (string) $h['quantity'] : '0';
             }
-            $log('wallet holds ' . count($holdings[$network]) . ' distinct assets on ' . $network);
         }
 
         // Match holdings to active specs.
@@ -309,8 +252,7 @@ class AssetUpgradePublicController {
                     $resolved_from = 'per_asset_full';
                 } elseif (is_array($cfg['patch']) && !empty($cfg['patch'])) {
                     // We need current chain metadata to apply the patch.
-                    if ($meta_fetches >= $META_FETCH_CAP) { $log('META_FETCH_CAP hit, stopping patch resolves'); break 2; }
-                    $log('blockfrost assetMetadata #' . ($meta_fetches + 1) . ' (patch) ' . substr($unit, 0, 70));
+                    if ($meta_fetches >= $META_FETCH_CAP) break 2;
                     $meta_resp = BlockfrostClient::assetMetadata($unit, $network);
                     $meta_fetches++;
                     if (!$meta_resp['ok']) continue; // skip silently; customer doesn't care which one couldn't load
@@ -328,7 +270,6 @@ class AssetUpgradePublicController {
                 // diff/build step resolve it lazily.
                 if ($resolved_from === 'per_asset_full' && $current === null) {
                     if ($meta_fetches < $META_FETCH_CAP) {
-                        $log('blockfrost assetMetadata #' . ($meta_fetches + 1) . ' (per-asset) ' . substr($unit, 0, 70));
                         $meta_resp = BlockfrostClient::assetMetadata($unit, $network);
                         $meta_fetches++;
                         $current = ($meta_resp['ok'] && isset($meta_resp['data']['onchain_metadata']) && is_array($meta_resp['data']['onchain_metadata']))
@@ -355,7 +296,6 @@ class AssetUpgradePublicController {
             }
         }
 
-        $log('done, eligible=' . count($eligible) . ' meta_fetches=' . $meta_fetches);
         return new \WP_REST_Response(['assets' => $eligible], 200);
     }
 

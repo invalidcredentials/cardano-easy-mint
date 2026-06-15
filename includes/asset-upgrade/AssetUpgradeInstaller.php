@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) exit;
 class AssetUpgradeInstaller {
 
     const FLAG_OPTION    = 'cardano_mint_asset_upgrade_schema_version';
-    const SCHEMA_VERSION = '2';
+    const SCHEMA_VERSION = '3';
 
     public static function table_specs(): string {
         global $wpdb;
@@ -35,6 +35,11 @@ class AssetUpgradeInstaller {
     /** Run on plugin activation. */
     public static function install(): void {
         self::create_tables();
+        // Drop the transient diagnostic options left by the v4.3.3–4.3.8
+        // 502 investigation (now removed from the code).
+        delete_option('cem_upgrade_eligible_trace');
+        delete_option('cem_upgrade_build_trace');
+        delete_option('cem_upgrade_submit_trace');
         update_option(self::FLAG_OPTION, self::SCHEMA_VERSION);
     }
 

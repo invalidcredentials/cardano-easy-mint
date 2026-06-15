@@ -2,6 +2,21 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.3.9] - 2026-06-15
+
+Removes the temporary 502-investigation diagnostics now that the root cause is found and fixed (the submit endpoint's oversized response/headers were tripping nginx's default 8k `fastcgi_buffer_size` → 502; resolved server-side by raising the FastCGI buffers, and here by no longer emitting the diagnostic noise).
+
+### Removed
+- The per-checkpoint breadcrumb tracing in `eligible` / `build` / `submit` (the `cem_upgrade_*_trace` committed options + verbose `[asset-upgrade:*]` `error_log` lines) and the per-page Blockfrost timing log. These were scaffolding to chase a worker-death that turned out to be an nginx buffer limit — they add a DB write + log spam on every customer request, so they're gone.
+- The `GET /upgrade/diag` endpoint (diagnostic only).
+- A one-time migration (schema v3) deletes the leftover `cem_upgrade_eligible_trace` / `_build_trace` / `_submit_trace` options.
+
+### Changed
+- The REST crash guard now returns a **generic** error message to the client and logs the full detail (message + file:line + trace) server-side only — no more leaking server paths in the response.
+
+### Kept
+- The real fixes from 4.3.5–4.3.7 (bech32 reward-address normalization, two-tx burn→re-mint, `version: cip25` on the burn entry), the crash-to-JSON guard, the eligibility per-asset metadata cap, and `upgrade.js` non-JSON response handling.
+
 ## [4.3.8] - 2026-06-15
 
 The burn leg now builds + submits and lands on-chain, but a Cloudflare-masked **502 (origin worker death)** strikes on the burn submit / re-mint build, so the re-mint never runs — leaving an asset burned-but-not-re-minted. A worker death (FPM timeout / OOM) can't be caught in PHP, so this adds committed breadcrumbs to pinpoint it.

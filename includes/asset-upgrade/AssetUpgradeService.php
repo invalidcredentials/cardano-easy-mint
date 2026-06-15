@@ -46,25 +46,6 @@ class AssetUpgradeService {
         return AssetUpgradeInstaller::table_log();
     }
 
-    /** Per-request start time for trace elapsed values. */
-    private static $trace_t0 = null;
-
-    /**
-     * Committed breadcrumb so we can see how far build/submit got before a
-     * PHP-FPM worker death (a 502 can't be caught in PHP — the process dies
-     * before returning — but a committed option survives). $key is 'build' or
-     * 'submit'; read back via GET /upgrade/diag.
-     */
-    private static function trace(string $key, string $msg): void {
-        if (self::$trace_t0 === null) self::$trace_t0 = microtime(true);
-        $line = sprintf('+%.1fs %s', microtime(true) - self::$trace_t0, $msg);
-        error_log("[asset-upgrade:$key] $line");
-        update_option('cem_upgrade_' . $key . '_trace', [
-            'at'    => gmdate('Y-m-d H:i:s') . ' UTC',
-            'stage' => $line,
-        ], false);
-    }
-
     /**
      * Build ONE leg of the burn-and-re-mint upgrade.
      *
@@ -89,7 +70,6 @@ class AssetUpgradeService {
      *          'policy_id'=>..,'asset_name'=>..] or ['ok'=>false,'error','stage'].
      */
     public static function build(string $policy_id, string $asset_name, string $customer_address, string $step = 'burn', int $burn_log_id = 0): array {
-        self::trace('build', 'start step=' . $step . ' asset=' . substr($asset_name, 0, 20));
         if (!preg_match('/^[a-f0-9]{56}$/i', $policy_id)) {
             return ['ok' => false, 'error' => 'Invalid policy_id', 'stage' => 'validate'];
         }
@@ -295,9 +275,7 @@ class AssetUpgradeService {
      * a 'failed' audit row on error. $leg is 'burn'|'remint' for the log.
      */
     private static function anvil_build(array $tx_request, int $upgrade_id, string $policy_id, string $asset_name, string $wallet, string $leg): array {
-        self::trace('build', "calling Anvil transactions/build ($leg)…");
         $resp = AnvilAPI::call('transactions/build', $tx_request, 'mint');
-        self::trace('build', "Anvil transactions/build ($leg) returned");
         if (is_wp_error($resp)) {
             self::log_event($upgrade_id, $policy_id, $asset_name, $wallet, null, 'failed', "anvil build ($leg): " . $resp->get_error_message());
             return ['ok' => false, 'error' => "Anvil build failed ($leg): " . $resp->get_error_message(), 'stage' => 'anvil_build'];
@@ -323,7 +301,6 @@ class AssetUpgradeService {
      * Returns ['ok'=>true,'tx_hash'=>..] or ['ok'=>false,'error','stage'].
      */
     public static function submit(int $log_id, string $transaction, array $signatures): array {
-        self::trace('submit', 'start log_id=' . $log_id);
         if ($log_id <= 0)       return ['ok' => false, 'error' => 'log_id required', 'stage' => 'validate'];
         if ($transaction === '') return ['ok' => false, 'error' => 'transaction required', 'stage' => 'validate'];
 
@@ -339,10 +316,8 @@ class AssetUpgradeService {
         // witness (imported skey wins, internal wallet fallback) to the
         // signatures array and submits {transaction, signatures} to Anvil.
         // This is the heaviest step (pure-PHP policy sign + Anvil submit
-        // round-trip) and the prime suspect for an FPM-timeout 502.
-        self::trace('submit', 'policy sign + Anvil submit…');
+        // round-trip).
         $resp = AnvilAPI::submitTransaction($transaction, $signatures, 'mint', (string) $log['policy_id']);
-        self::trace('submit', 'Anvil submit returned');
         if (is_wp_error($resp)) {
             self::log_event(null, $log['policy_id'], $log['asset_name'], $log['wallet_address'], null, 'failed', 'anvil submit: ' . $resp->get_error_message());
             return ['ok' => false, 'error' => 'Anvil submit failed: ' . $resp->get_error_message(), 'stage' => 'anvil_submit'];
