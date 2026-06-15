@@ -2,6 +2,11 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.3.7] - 2026-06-14
+
+### Fixed
+- **Burn leg `Input validation failed`.** Anvil's `transactions/build` input schema requires `version: "cip25"` (or `cip68`) on **every** `mint` entry — including a metadata-less burn. The 4.3.6 burn entry omitted it and Anvil rejected the payload (`mint[0].version`). Added `version: 'cip25'` to the burn entry. Confirmed locally against Anvil: with `version` present the payload passes validation and proceeds to UTxO selection; `outputs` is not required for the burn.
+
 ## [4.3.6] - 2026-06-14
 
 **Splits the burn-and-re-mint into two transactions.** The single-tx approach hit a hard ledger rule: a burn (-1) and re-mint (+1) of the same `(policy, assetName)` net to a 0-value mint, which Cardano rejects ("MintAssets cannot be created with 0 value"). CIP-25 metadata on a fixed-supply 1/1 can only be refreshed across two txs.
