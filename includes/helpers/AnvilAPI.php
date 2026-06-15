@@ -300,6 +300,23 @@ class AnvilAPI {
                     error_log("policy_json content: " . wp_json_encode($policy_data, JSON_PRETTY_PRINT));
                 }
             }
+
+            // Fallback for imported (skey) policies: their native script lives
+            // in the mint_policies table (policy_schema), and the asset rows may
+            // carry a bare schema or null policy_json. If we still have no
+            // script, load it from the imported policy so preloadedScripts is
+            // populated and the mint can be signed/submitted.
+            if (empty($policy_script)) {
+                $imported_policy = \CardanoMintPay\Models\MintModel::getMintPolicyByPolicyId($policy_id);
+                if ($imported_policy && !empty($imported_policy['policy_schema'])) {
+                    $decoded_schema = json_decode((string) $imported_policy['policy_schema'], true);
+                    if (is_array($decoded_schema)) {
+                        // policy_schema may be the bare native script or wrapped.
+                        $policy_script = isset($decoded_schema['schema']) ? $decoded_schema['schema'] : $decoded_schema;
+                        error_log("Policy script loaded from imported mint_policies for {$policy_id}");
+                    }
+                }
+            }
         }
 
         // Build CIP-25 metadata for the mint object.

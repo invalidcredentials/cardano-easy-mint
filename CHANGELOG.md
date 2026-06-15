@@ -2,6 +2,15 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.4.1] - 2026-06-15
+
+Fixes for using imported (skey+script) policies with the bulk JSON import, surfaced right after 4.4.0.
+
+### Fixed
+- **Active Mints hid imported-policy assets** and showed "No Active Policy Wallet." The tab filtered strictly by the active *generated* policy wallet's keyhash, but imported policies have no generated wallet — their signing key is the saved skey in `mint_policies` (which already overrides at submit time). The tab now also keeps mints whose policy has a saved imported skey (`MintModel::getImportedSkeyPolicyIds()` + a shared `cardanomint_partition_mints()` used by both filter passes), so skey-backed collections appear without a wallet.
+- **Couldn't set price / royalty / mints-per-wallet for an imported policy** in the Mint Manager. Those policy-level fields were greyed as "inherited from variant A," which imported policies don't have, leaving price locked + empty. They're now editable when an imported (`data-imported`) policy is selected; the values apply to every asset under that policy, including the bulk import.
+- **Imported-policy mints had no `preloadedScripts`.** Imported-policy asset rows can carry a bare/empty `policy_json`, so `buildMintTransaction` found no script and the mint would fail. It now falls back to the policy's native script from `mint_policies` (`policy_schema`, bare or wrapped) — mirroring the Asset Upgrade flow — so imported-policy assets actually mint.
+
 ## [4.4.0] - 2026-06-15
 
 Adds a **bulk JSON import path** to the Mint Manager for collections that already have finished, mint-ready metadata — skip the per-asset form entirely.

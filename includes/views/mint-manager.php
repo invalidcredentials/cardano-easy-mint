@@ -857,6 +857,18 @@ function loadPolicyData() {
 
     console.log('Fields populated successfully');
 
+    // Imported (skey) policies have no parent variant A to inherit pricing
+    // from, so let the operator set the policy-level fields here. They apply to
+    // every asset minted under this policy (incl. the bulk JSON import).
+    var isImported = selectedOption.getAttribute('data-imported') === '1';
+    ['cardanonftprice', 'cardanonftroyaltyamount', 'cardanonftroyaltyaddress', 'cardanonftmintsallowedperwallet', 'cardanonfttitle'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.readOnly = !isImported;
+        el.style.background = isImported ? '' : '#f5f5f5';
+        el.style.cursor = isImported ? '' : 'not-allowed';
+    });
+
     // Show info display
     document.getElementById('policy-info-display').style.display = 'block';
 }
