@@ -124,14 +124,10 @@ class AssetUpgradeService {
         $unit = $policy_id . $asset_name;
 
         if ($step === 'burn') {
-            // The asset must still exist as a 1/1 on chain to be burned.
-            $asset_resp = BlockfrostClient::assetMetadata($unit, $network);
-            if ($asset_resp['ok'] && isset($asset_resp['data']['quantity'])) {
-                $qty = (string) $asset_resp['data']['quantity'];
-                if ($qty !== '1') {
-                    return ['ok' => false, 'error' => "Asset has on-chain quantity {$qty}, not 1. Burn-and-re-mint is only safe for 1-of-1 CIP-25 NFTs.", 'stage' => 'multi_quantity'];
-                }
-            }
+            // Burn one copy (-1). Previously this refused any asset whose
+            // on-chain quantity wasn't exactly 1; that guard is removed so an
+            // accidental multi-mint can be cleaned up — sign the burn (taking
+            // e.g. 2 -> 1) and simply skip the re-mint signature.
 
             // Resolve the target metadata NOW — for policy-wide patch mode the
             // current chain metadata disappears after the burn, so we can't
