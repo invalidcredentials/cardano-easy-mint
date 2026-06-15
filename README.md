@@ -39,7 +39,7 @@ A WordPress plugin for minting NFTs on the Cardano blockchain via the [Ada Anvil
 | Page | Purpose |
 |------|---------|
 | **Plugin Setup** | Anvil API keys, merchant address, network (mainnet/preprod), Pinata IPFS config, alt-chain feature flag, service-fee ADA amount |
-| **Mint Manager** | Create / edit NFT collections, variants, metadata, royalties, pricing |
+| **Mint Manager** | Create / edit NFT collections, variants, metadata, royalties, pricing. Two paths: **Build NFT** (per-asset form) or **Import JSON (bulk)** — paste/upload a JSON array of `{assetName, metadata}` to load a whole collection as quantity-1, verbatim-minted assets. |
 | **Active Mints** | View mints by policy, archive, CSV export/import, mint history |
 | **Policy Wallet** | Generate or import Cardano signing wallets, advanced key import (seed / skey / manual). Skey + Script / Manual import accept either a bare native script or the full exported policy wrapper (`{policyId, script, schema, …}`), and validate the key against any signer in a multisig policy. |
 | **Alt-Chain Payments** | BTC / ETH / SOL parent-wallet management, per-chain settings, RPC config, refund / sweep tooling, cross-chain invoice review |

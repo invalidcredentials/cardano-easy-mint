@@ -108,6 +108,13 @@ class AnvilAPI {
      */
     public static function buildMintTransaction($merchant_address, $customer_address, $usd_price, $policy_id, $plugin_type = 'mint', $mint_data = null, $quantity = 1) {
         $quantity = max(1, min(5, intval($quantity)));
+        // Verbatim (bulk-imported, mint-ready) assets are 1-of-1 and mint
+        // exactly one — a random pick selects a single asset, and minting >1 of
+        // a 1/1 token name would be invalid. Force quantity to 1.
+        $is_verbatim = is_array($mint_data) && (($mint_data['metadata_mode'] ?? '') === 'verbatim');
+        if ($is_verbatim) {
+            $quantity = 1;
+        }
         error_log("buildMintTransaction called with:");
         error_log("merchant_address: " . $merchant_address);
         error_log("customer_address: " . $customer_address);
@@ -185,6 +192,21 @@ class AnvilAPI {
         // Keep $asset_name_raw set to the first name for any downstream code
         // that still references the single-asset shape (metadata defaults etc).
         $asset_name_raw = $asset_names[0];
+
+        // Verbatim import override: use the explicit on-chain token name stored
+        // at import (no generated NFT_<ts>_<seq>) and the stored metadata exactly
+        // as provided. The reconstruction below still runs but is unused for
+        // verbatim — the mint loop swaps in $verbatim_metadata directly.
+        $verbatim_metadata = null;
+        if ($is_verbatim) {
+            $explicit_name = (string) ($mint_data['asset_name'] ?? '');
+            if ($explicit_name !== '') {
+                $asset_names    = array($explicit_name);
+                $asset_name_raw = $explicit_name;
+            }
+            $decoded_vm = json_decode((string) ($mint_data['nft_metadata'] ?? ''), true);
+            $verbatim_metadata = is_array($decoded_vm) ? $decoded_vm : array();
+        }
         error_log("Asset names ({$quantity}): " . implode(', ', $asset_names));
 
         // Get mint-specific metadata if available
@@ -403,13 +425,19 @@ class AnvilAPI {
                 'quantity' => 1
             );
 
-            // Per-asset metadata: clone the base CIP-25 blob and append the
-            // global sequence number so the wallet display name (e.g. "Shield
-            // #019") matches the on-chain asset_name suffix (..._019).
-            $asset_meta = $cip25_metadata;
-            $seq_num = $start + $idx + 1;
-            $asset_meta['name'] = (isset($cip25_metadata['name']) ? $cip25_metadata['name'] : $nft_name)
-                . ' #' . str_pad((string) $seq_num, 3, '0', STR_PAD_LEFT);
+            if ($is_verbatim) {
+                // Mint the imported metadata exactly as stored — no #seq, no
+                // reconstruction. The asset already carries its own unique name.
+                $asset_meta = $verbatim_metadata;
+            } else {
+                // Per-asset metadata: clone the base CIP-25 blob and append the
+                // global sequence number so the wallet display name (e.g. "Shield
+                // #019") matches the on-chain asset_name suffix (..._019).
+                $asset_meta = $cip25_metadata;
+                $seq_num = $start + $idx + 1;
+                $asset_meta['name'] = (isset($cip25_metadata['name']) ? $cip25_metadata['name'] : $nft_name)
+                    . ' #' . str_pad((string) $seq_num, 3, '0', STR_PAD_LEFT);
+            }
 
             $mint_array[] = array(
                 'version' => 'cip25',  // CRITICAL: tells Anvil to generate 721 metadata
