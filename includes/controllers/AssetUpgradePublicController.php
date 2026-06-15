@@ -116,6 +116,8 @@ class AssetUpgradePublicController {
             'anvil_mint_key_set' => (bool) get_option('cardano_mint_anvil_api_key'),
             'active_specs'       => $active,
             'last_eligible_trace'=> get_option('cem_upgrade_eligible_trace', null),
+            'last_build_trace'   => get_option('cem_upgrade_build_trace', null),
+            'last_submit_trace'  => get_option('cem_upgrade_submit_trace', null),
         ], 200);
     }
 

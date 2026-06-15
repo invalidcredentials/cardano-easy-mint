@@ -2,6 +2,16 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.3.8] - 2026-06-15
+
+The burn leg now builds + submits and lands on-chain, but a Cloudflare-masked **502 (origin worker death)** strikes on the burn submit / re-mint build, so the re-mint never runs — leaving an asset burned-but-not-re-minted. A worker death (FPM timeout / OOM) can't be caught in PHP, so this adds committed breadcrumbs to pinpoint it.
+
+### Added
+- **Build + submit breadcrumb trace.** `AssetUpgradeService::build()` and `submit()` write a committed `cem_upgrade_build_trace` / `cem_upgrade_submit_trace` option at each checkpoint (notably right before/after the Anvil `transactions/build` and the policy-sign + `transactions/submit` round-trip). Surfaced in `GET /upgrade/diag` as `last_build_trace` / `last_submit_trace`. After a 502, the last stored stage is exactly where the worker died — the prime suspect being the submit's pure-PHP policy-sign + Anvil submit exceeding the origin's FPM/nginx timeout.
+
+### Operational note
+- A burned-but-not-re-minted asset is recoverable: the policy is still active, so re-minting the same policy+asset name restores the identical fingerprint. A "resume unfinished upgrade" path will follow once the 502 root cause is confirmed.
+
 ## [4.3.7] - 2026-06-14
 
 ### Fixed
