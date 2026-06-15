@@ -47,21 +47,29 @@ class AssetUpgradeService {
     }
 
     /**
-     * Build a burn-and-re-mint transaction. Returns either:
-     *   [ 'ok' => true,
-     *     'unsigned_tx_hex' => '...',  // CBOR hex from Anvil
-     *     'fee_lovelace'    => '170000',
-     *     'log_id'          => 42,
-     *     'asset_name'      => '...',
-     *     'policy_id'       => '...' ]
-     * or:
-     *   [ 'ok' => false, 'error' => '<message>', 'stage' => '<step>' ]
+     * Build ONE leg of the burn-and-re-mint upgrade.
      *
-     * The log_id is the audit-row id; the submit endpoint accepts it as
-     * the way to find the build context (so we don't have to ship policy
-     * keys / metadata through the client).
+     * CIP-25 metadata can only be refreshed on a fixed-supply 1/1 across TWO
+     * transactions: a net-zero mint (burn -1 AND mint +1 of the same asset in
+     * one tx) is rejected by the ledger ("MintAssets cannot be created with 0
+     * value"). So:
+     *
+     *   step 'burn'   — mint -1, no metadata, no asset output. Resolves and
+     *                   stashes the target metadata (transient keyed by the
+     *                   burn log id) so the re-mint still has it after the
+     *                   on-chain metadata is gone.
+     *   step 'remint' — mint +1 with the new CIP-25 metadata, output the fresh
+     *                   asset back to the customer. Reads the stashed metadata
+     *                   via $burn_log_id (falls back to re-resolving for
+     *                   full-mode specs).
+     *
+     * Both legs are funded + signed by the customer (Anvil auto-selects their
+     * UTxOs from changeAddress) and co-signed by the policy wallet at submit.
+     *
+     * Returns ['ok'=>true,'step'=>..,'unsigned_tx_hex'=>..,'log_id'=>..,
+     *          'policy_id'=>..,'asset_name'=>..] or ['ok'=>false,'error','stage'].
      */
-    public static function build(string $policy_id, string $asset_name, string $customer_address): array {
+    public static function build(string $policy_id, string $asset_name, string $customer_address, string $step = 'burn', int $burn_log_id = 0): array {
         if (!preg_match('/^[a-f0-9]{56}$/i', $policy_id)) {
             return ['ok' => false, 'error' => 'Invalid policy_id', 'stage' => 'validate'];
         }
@@ -71,9 +79,12 @@ class AssetUpgradeService {
         if ($customer_address === '') {
             return ['ok' => false, 'error' => 'customer_address required', 'stage' => 'validate'];
         }
+        if (!in_array($step, ['burn', 'remint'], true)) {
+            return ['ok' => false, 'error' => 'invalid step (expected burn|remint)', 'stage' => 'validate'];
+        }
 
-        // Step 1: load the spec for this asset. Per-asset row wins; falls
-        // back to the policy-wide patch row.
+        // Load the spec for this asset. Per-asset row wins; falls back to the
+        // policy-wide patch row.
         global $wpdb;
         $table = self::table_specs();
         $policy_row = $wpdb->get_row($wpdb->prepare(
@@ -88,81 +99,95 @@ class AssetUpgradeService {
             "SELECT id, new_metadata, mode, status FROM $table WHERE policy_id = %s AND asset_name = %s",
             $policy_id, $asset_name
         ), ARRAY_A);
+        $network    = (string) $policy_row['network'];
+        $upgrade_id = $per_asset_row ? (int) $per_asset_row['id'] : (int) $policy_row['id'];
 
-        // Locked decision D4: re-check time-lock at build time.
-        if (!empty($policy_row['policy_locks_at_slot']) && self::is_lock_in_past((int) $policy_row['policy_locks_at_slot'], (string) $policy_row['network'])) {
+        // Re-check time-lock at build time (decision D4).
+        if (!empty($policy_row['policy_locks_at_slot']) && self::is_lock_in_past((int) $policy_row['policy_locks_at_slot'], $network)) {
             return ['ok' => false, 'error' => 'Policy is permanently locked on-chain. Assets cannot be upgraded.', 'stage' => 'lock'];
         }
 
-        // Determine which spec applies + its status. Must be 'active'.
-        $upgrade_id = null;
-        $target_meta = null;
-        if ($per_asset_row && (string) $per_asset_row['mode'] === 'full') {
-            if ((string) $per_asset_row['status'] !== 'active') {
-                return ['ok' => false, 'error' => 'Per-asset spec for this NFT is not active.', 'stage' => 'spec_inactive'];
-            }
-            $target_meta = json_decode((string) $per_asset_row['new_metadata'], true);
-            $upgrade_id  = (int) $per_asset_row['id'];
-        } else {
-            if ((string) $policy_row['status'] !== 'active') {
-                return ['ok' => false, 'error' => 'Policy-wide upgrade spec is not active.', 'stage' => 'spec_inactive'];
-            }
-            $patch = json_decode((string) $policy_row['new_metadata'], true);
-            if (!is_array($patch) || empty($patch)) {
-                return ['ok' => false, 'error' => 'Policy-wide patch is empty; nothing to upgrade.', 'stage' => 'spec_empty'];
-            }
-            // Need current chain metadata for the merge.
-            $unit = $policy_id . $asset_name;
-            $resp = BlockfrostClient::assetMetadata($unit, (string) $policy_row['network']);
-            if (!$resp['ok']) {
-                return ['ok' => false, 'error' => 'Could not fetch current chain metadata: ' . ($resp['error'] ?? 'unknown'), 'stage' => 'chain_meta'];
-            }
-            $current = isset($resp['data']['onchain_metadata']) && is_array($resp['data']['onchain_metadata'])
-                ? $resp['data']['onchain_metadata']
-                : [];
-            $target_meta = MetadataResolver::applyPatch($current, $patch);
-            $upgrade_id = (int) $policy_row['id'];
-        }
-        if (!is_array($target_meta) || empty($target_meta)) {
-            return ['ok' => false, 'error' => 'Resolved metadata is empty; refusing to mint.', 'stage' => 'resolve'];
-        }
-
-        // Step 2: policy script for preloadedScripts. We look it up in the
-        // imported-policies table first (admins paste these for non-internal
-        // collections), falling back to the policy_json on active mints.
+        // Policy native script for preloadedScripts (imported policy_schema,
+        // else active-mints fallback).
         $policy_script = self::load_policy_script_json($policy_id);
         if (empty($policy_script)) {
             return ['ok' => false, 'error' => 'Policy script JSON not available locally. Import it via the Policy Wallet admin page first.', 'stage' => 'policy_script'];
         }
 
-        // Step 3: bech32-normalize the customer address. Anvil's parse
-        // endpoint accepts hex or bech32 and returns bech32.
+        // Normalize the customer's change/funding address.
         $customer_address_bech = AnvilAPI::convertAddressToBech32($customer_address);
         if (!is_string($customer_address_bech) || $customer_address_bech === '') {
             return ['ok' => false, 'error' => 'Could not normalize customer address.', 'stage' => 'address_parse'];
         }
 
-        // Multi-quantity guard: CIP-25 NFTs are 1-of-1 by design. If the
-        // on-chain quantity for this asset is > 1, the asset is fungible
-        // and our burn(-1)+mint(+1) pattern would leave the customer with
-        // n-1 old tokens + 1 new token — almost certainly not what they
-        // want. Refuse rather than silently produce a confusing result.
+        $asset_name_field = ['name' => $asset_name, 'format' => 'hex'];
         $unit = $policy_id . $asset_name;
-        $asset_resp = BlockfrostClient::assetMetadata($unit, (string) $policy_row['network']);
-        if ($asset_resp['ok'] && isset($asset_resp['data']['quantity'])) {
-            $qty = (string) $asset_resp['data']['quantity'];
-            if ($qty !== '1') {
-                return ['ok' => false, 'error' => "Asset has on-chain quantity {$qty}, not 1. Burn-and-re-mint is only safe for 1-of-1 CIP-25 NFTs.", 'stage' => 'multi_quantity'];
+
+        if ($step === 'burn') {
+            // The asset must still exist as a 1/1 on chain to be burned.
+            $asset_resp = BlockfrostClient::assetMetadata($unit, $network);
+            if ($asset_resp['ok'] && isset($asset_resp['data']['quantity'])) {
+                $qty = (string) $asset_resp['data']['quantity'];
+                if ($qty !== '1') {
+                    return ['ok' => false, 'error' => "Asset has on-chain quantity {$qty}, not 1. Burn-and-re-mint is only safe for 1-of-1 CIP-25 NFTs.", 'stage' => 'multi_quantity'];
+                }
             }
+
+            // Resolve the target metadata NOW — for policy-wide patch mode the
+            // current chain metadata disappears after the burn, so we can't
+            // defer this to the re-mint leg.
+            $resolved = self::resolve_target_meta($policy_id, $asset_name, $policy_row, $per_asset_row, $network);
+            if (!$resolved['ok']) return $resolved;
+            $target_meta = $resolved['meta'];
+
+            // Burn leg: mint -1, no metadata, no asset output. The NFT's UTxO
+            // is consumed (auto-selected from changeAddress); its ADA returns
+            // as change.
+            $tx_request = [
+                'changeAddress' => $customer_address_bech,
+                'mint' => [
+                    [
+                        'policyId'  => $policy_id,
+                        'quantity'  => -1,
+                        'assetName' => $asset_name_field,
+                    ],
+                ],
+                'preloadedScripts' => [
+                    ['type' => 'simple', 'script' => $policy_script, 'hash' => $policy_id],
+                ],
+            ];
+
+            $unsigned = self::anvil_build($tx_request, $upgrade_id, $policy_id, $asset_name, $customer_address_bech, 'burn');
+            if (!$unsigned['ok']) return $unsigned;
+
+            $log_id = self::log_event($upgrade_id, $policy_id, $asset_name, $customer_address_bech, null, 'built', 'burn');
+            // Stash resolved metadata for the re-mint leg (2h TTL).
+            set_transient('cem_upg_meta_' . $log_id, $target_meta, 2 * HOUR_IN_SECONDS);
+
+            return [
+                'ok'              => true,
+                'step'            => 'burn',
+                'unsigned_tx_hex' => $unsigned['tx'],
+                'log_id'          => $log_id,
+                'asset_name'      => $asset_name,
+                'policy_id'       => $policy_id,
+            ];
         }
 
-        // Step 4: compose the Anvil request. Asset name is hex in our DB
-        // and on-chain; we use format='hex' so we don't have to round-trip
-        // through ASCII (which would fail for non-ASCII asset names).
-        $asset_name_field = ['name' => $asset_name, 'format' => 'hex'];
+        // step === 'remint'.
+        // Prefer the metadata stashed at burn time; fall back to re-resolving
+        // (works for full mode — patch mode needs the stash since the on-chain
+        // metadata is already burned).
+        $target_meta = $burn_log_id > 0 ? get_transient('cem_upg_meta_' . $burn_log_id) : false;
+        if (!is_array($target_meta) || empty($target_meta)) {
+            $resolved = self::resolve_target_meta($policy_id, $asset_name, $policy_row, $per_asset_row, $network);
+            if (!$resolved['ok']) return $resolved;
+            $target_meta = $resolved['meta'];
+        }
+        if (!is_array($target_meta) || empty($target_meta)) {
+            return ['ok' => false, 'error' => 'Resolved metadata is empty; refusing to re-mint.', 'stage' => 'resolve'];
+        }
 
-        // Wrap the resolved metadata in the CIP-25 721 envelope per Anvil's
-        // mint payload contract.
         $tx_request = [
             'changeAddress' => $customer_address_bech,
             'outputs' => [
@@ -170,26 +195,11 @@ class AssetUpgradeService {
                     'address'  => $customer_address_bech,
                     'lovelace' => 1500000, // min-utxo for an output carrying one native token; Anvil bumps if needed
                     'assets'   => [
-                        [
-                            'policyId'  => $policy_id,
-                            'assetName' => $asset_name_field,
-                            'quantity'  => 1,
-                        ],
+                        ['policyId' => $policy_id, 'assetName' => $asset_name_field, 'quantity' => 1],
                     ],
                 ],
             ],
             'mint' => [
-                // Burn the existing asset. Net effect at the protocol level:
-                // the customer's input UTxO holding this token is consumed,
-                // and the protocol accepts the burn because this tx says so.
-                [
-                    'version'   => 'cip25',
-                    'policyId'  => $policy_id,
-                    'quantity'  => -1,
-                    'assetName' => $asset_name_field,
-                ],
-                // Mint a fresh copy at the same policy + asset_name with the
-                // new CIP-25 metadata. Same fingerprint, different metadata.
                 [
                     'version'   => 'cip25',
                     'policyId'  => $policy_id,
@@ -199,34 +209,20 @@ class AssetUpgradeService {
                 ],
             ],
             'preloadedScripts' => [
-                [
-                    'type'   => 'simple',
-                    'script' => $policy_script,
-                    'hash'   => $policy_id,
-                ],
+                ['type' => 'simple', 'script' => $policy_script, 'hash' => $policy_id],
             ],
         ];
 
-        // Step 5: call Anvil.
-        $resp = AnvilAPI::call('transactions/build', $tx_request, 'mint');
-        if (is_wp_error($resp)) {
-            self::log_event($upgrade_id, $policy_id, $asset_name, $customer_address_bech, null, 'failed', 'anvil build: ' . $resp->get_error_message());
-            return ['ok' => false, 'error' => 'Anvil build failed: ' . $resp->get_error_message(), 'stage' => 'anvil_build'];
-        }
-        $unsigned_tx_hex = $resp['complete'] ?? ($resp['transaction'] ?? ($resp['cborHex'] ?? ''));
-        $fee_lovelace    = $resp['stripped']['body']['fee'] ?? ($resp['fee'] ?? '');
+        $unsigned = self::anvil_build($tx_request, $upgrade_id, $policy_id, $asset_name, $customer_address_bech, 'remint');
+        if (!$unsigned['ok']) return $unsigned;
 
-        if ($unsigned_tx_hex === '') {
-            self::log_event($upgrade_id, $policy_id, $asset_name, $customer_address_bech, null, 'failed', 'anvil build returned no tx hex: ' . wp_json_encode($resp));
-            return ['ok' => false, 'error' => 'Anvil returned no transaction. Check the policy script + asset name encoding.', 'stage' => 'anvil_response'];
-        }
-
-        $log_id = self::log_event($upgrade_id, $policy_id, $asset_name, $customer_address_bech, null, 'built', null);
+        $log_id = self::log_event($upgrade_id, $policy_id, $asset_name, $customer_address_bech, null, 'built', 'remint');
+        if ($burn_log_id > 0) delete_transient('cem_upg_meta_' . $burn_log_id);
 
         return [
             'ok'              => true,
-            'unsigned_tx_hex' => $unsigned_tx_hex,
-            'fee_lovelace'    => (string) $fee_lovelace,
+            'step'            => 'remint',
+            'unsigned_tx_hex' => $unsigned['tx'],
             'log_id'          => $log_id,
             'asset_name'      => $asset_name,
             'policy_id'       => $policy_id,
@@ -234,69 +230,100 @@ class AssetUpgradeService {
     }
 
     /**
-     * Submit a customer-signed transaction. Adds the policy wallet's
-     * signature via CardanoCLI and dispatches to Anvil.
-     *
-     * $signed_tx_hex is the FULL transaction the customer's CIP-30 wallet
-     * returned from signTx() — it already contains the customer witness.
-     * We sign it again with the policy skey to add the second signature
-     * the policy script requires, then submit.
-     *
-     * Returns ['ok' => true, 'tx_hash' => '...'] or
-     *         ['ok' => false, 'error' => '...', 'stage' => '...'].
+     * Resolve the target CIP-25 metadata for an asset.
+     * Returns ['ok'=>true,'meta'=>array] or ['ok'=>false,'error','stage'].
      */
-    public static function submit(int $log_id, string $signed_tx_hex): array {
-        if ($log_id <= 0)        return ['ok' => false, 'error' => 'log_id required', 'stage' => 'validate'];
-        if ($signed_tx_hex === '') return ['ok' => false, 'error' => 'signed_tx_hex required', 'stage' => 'validate'];
+    private static function resolve_target_meta(string $policy_id, string $asset_name, array $policy_row, $per_asset_row, string $network): array {
+        if ($per_asset_row && (string) $per_asset_row['mode'] === 'full') {
+            if ((string) $per_asset_row['status'] !== 'active') {
+                return ['ok' => false, 'error' => 'Per-asset spec for this NFT is not active.', 'stage' => 'spec_inactive'];
+            }
+            $meta = json_decode((string) $per_asset_row['new_metadata'], true);
+            if (!is_array($meta) || empty($meta)) {
+                return ['ok' => false, 'error' => 'Per-asset metadata is empty.', 'stage' => 'resolve'];
+            }
+            return ['ok' => true, 'meta' => $meta];
+        }
+
+        if ((string) $policy_row['status'] !== 'active') {
+            return ['ok' => false, 'error' => 'Policy-wide upgrade spec is not active.', 'stage' => 'spec_inactive'];
+        }
+        $patch = json_decode((string) $policy_row['new_metadata'], true);
+        if (!is_array($patch) || empty($patch)) {
+            return ['ok' => false, 'error' => 'Policy-wide patch is empty; nothing to upgrade.', 'stage' => 'spec_empty'];
+        }
+        $resp = BlockfrostClient::assetMetadata($policy_id . $asset_name, $network);
+        if (!$resp['ok']) {
+            return ['ok' => false, 'error' => 'Could not fetch current chain metadata: ' . ($resp['error'] ?? 'unknown'), 'stage' => 'chain_meta'];
+        }
+        $current = isset($resp['data']['onchain_metadata']) && is_array($resp['data']['onchain_metadata'])
+            ? $resp['data']['onchain_metadata']
+            : [];
+        $meta = MetadataResolver::applyPatch($current, $patch);
+        if (!is_array($meta) || empty($meta)) {
+            return ['ok' => false, 'error' => 'Resolved metadata is empty; refusing.', 'stage' => 'resolve'];
+        }
+        return ['ok' => true, 'meta' => $meta];
+    }
+
+    /**
+     * Call Anvil transactions/build and extract the unsigned tx hex.
+     * Returns ['ok'=>true,'tx'=>hex] or ['ok'=>false,'error','stage'] and logs
+     * a 'failed' audit row on error. $leg is 'burn'|'remint' for the log.
+     */
+    private static function anvil_build(array $tx_request, int $upgrade_id, string $policy_id, string $asset_name, string $wallet, string $leg): array {
+        $resp = AnvilAPI::call('transactions/build', $tx_request, 'mint');
+        if (is_wp_error($resp)) {
+            self::log_event($upgrade_id, $policy_id, $asset_name, $wallet, null, 'failed', "anvil build ($leg): " . $resp->get_error_message());
+            return ['ok' => false, 'error' => "Anvil build failed ($leg): " . $resp->get_error_message(), 'stage' => 'anvil_build'];
+        }
+        // 'complete' carries the metadata inline (fine here — the customer
+        // already reviewed the diff). Fall back through Anvil's other shapes.
+        $tx = $resp['complete'] ?? ($resp['transaction'] ?? ($resp['stripped'] ?? ($resp['cborHex'] ?? '')));
+        if (!is_string($tx) || $tx === '') {
+            self::log_event($upgrade_id, $policy_id, $asset_name, $wallet, null, 'failed', "anvil build ($leg) returned no tx hex: " . wp_json_encode($resp));
+            return ['ok' => false, 'error' => "Anvil returned no transaction ($leg).", 'stage' => 'anvil_response'];
+        }
+        return ['ok' => true, 'tx' => $tx];
+    }
+
+    /**
+     * Submit one leg. The customer's CIP-30 wallet returns a witness set from
+     * signTx(unsignedTx, true); we hand the UNSIGNED tx + that witness to the
+     * proven mint submit path, which adds the policy-wallet witness and
+     * dispatches to Anvil.
+     *
+     * $signatures is the array of customer witness-set hexes from the client.
+     *
+     * Returns ['ok'=>true,'tx_hash'=>..] or ['ok'=>false,'error','stage'].
+     */
+    public static function submit(int $log_id, string $transaction, array $signatures): array {
+        if ($log_id <= 0)       return ['ok' => false, 'error' => 'log_id required', 'stage' => 'validate'];
+        if ($transaction === '') return ['ok' => false, 'error' => 'transaction required', 'stage' => 'validate'];
 
         global $wpdb;
         $log = $wpdb->get_row($wpdb->prepare(
             "SELECT id, policy_id, asset_name, wallet_address, status FROM " . self::table_log() . " WHERE id = %d",
             $log_id
         ), ARRAY_A);
-        if (!$log)                                 return ['ok' => false, 'error' => 'Build log row not found', 'stage' => 'log_lookup'];
-        if ((string) $log['status'] !== 'built')   return ['ok' => false, 'error' => 'Build row is in status ' . $log['status'] . ', not built. Refresh and retry.', 'stage' => 'log_state'];
+        if (!$log)                               return ['ok' => false, 'error' => 'Build log row not found', 'stage' => 'log_lookup'];
+        if ((string) $log['status'] !== 'built') return ['ok' => false, 'error' => 'Build row is in status ' . $log['status'] . ', not built. Refresh and retry.', 'stage' => 'log_state'];
 
-        // Add policy signature via CLI helper (same path as the standard
-        // mint submit flow).
-        $skey_hex = self::load_policy_skey($log['policy_id']);
-        if ($skey_hex === '') {
-            self::log_event(null, $log['policy_id'], $log['asset_name'], $log['wallet_address'], null, 'failed', 'policy skey not available');
-            return ['ok' => false, 'error' => 'Policy signing key not available on the server.', 'stage' => 'policy_skey'];
-        }
-
-        $sign_result = CardanoCLI::signTransaction($signed_tx_hex, $skey_hex);
-        if (!$sign_result || empty($sign_result['success'])) {
-            $msg = is_array($sign_result) && isset($sign_result['error']) ? $sign_result['error'] : 'unknown CLI sign error';
-            self::log_event(null, $log['policy_id'], $log['asset_name'], $log['wallet_address'], null, 'failed', 'policy sign: ' . $msg);
-            return ['ok' => false, 'error' => 'Policy sign failed: ' . $msg, 'stage' => 'policy_sign'];
-        }
-        $fully_signed_hex = (string) ($sign_result['signed_tx'] ?? $sign_result['cborHex'] ?? '');
-        if ($fully_signed_hex === '') {
-            self::log_event(null, $log['policy_id'], $log['asset_name'], $log['wallet_address'], null, 'failed', 'policy sign returned no tx');
-            return ['ok' => false, 'error' => 'Policy sign returned no transaction.', 'stage' => 'policy_sign'];
-        }
-
-        // Anvil submit takes the fully-signed tx. (Some Anvil deployments
-        // also accept separate transaction + signatures; we pass the
-        // already-merged tx for consistency with this plugin's existing
-        // mint submit pattern.)
-        $resp = AnvilAPI::call('transactions/submit', [
-            'transaction' => $fully_signed_hex,
-            'signatures'  => [],
-        ], 'mint');
+        // Reuse the standard mint submit path: it adds the policy-wallet
+        // witness (imported skey wins, internal wallet fallback) to the
+        // signatures array and submits {transaction, signatures} to Anvil.
+        $resp = AnvilAPI::submitTransaction($transaction, $signatures, 'mint', (string) $log['policy_id']);
         if (is_wp_error($resp)) {
             self::log_event(null, $log['policy_id'], $log['asset_name'], $log['wallet_address'], null, 'failed', 'anvil submit: ' . $resp->get_error_message());
             return ['ok' => false, 'error' => 'Anvil submit failed: ' . $resp->get_error_message(), 'stage' => 'anvil_submit'];
         }
-        $tx_hash = (string) ($resp['txHash'] ?? ($resp['tx_hash'] ?? ($resp['hash'] ?? '')));
+        $tx_hash = is_array($resp) ? (string) ($resp['txHash'] ?? ($resp['tx_hash'] ?? ($resp['hash'] ?? ''))) : '';
         if ($tx_hash === '') {
             self::log_event(null, $log['policy_id'], $log['asset_name'], $log['wallet_address'], null, 'failed', 'anvil submit returned no txHash: ' . wp_json_encode($resp));
             return ['ok' => false, 'error' => 'Anvil accepted the submit but returned no txHash.', 'stage' => 'anvil_response'];
         }
 
         self::log_event(null, $log['policy_id'], $log['asset_name'], $log['wallet_address'], $tx_hash, 'submitted', null);
-
         return ['ok' => true, 'tx_hash' => $tx_hash];
     }
 

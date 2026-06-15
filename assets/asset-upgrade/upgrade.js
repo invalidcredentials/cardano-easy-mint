@@ -55,80 +55,100 @@
         });
     }
 
-    /* ─── phase 5: build → sign → submit ──────────────────────────────── */
+    /* ─── burn → re-mint (two sequential txs) ─────────────────────────────
+     *
+     * CIP-25 metadata can't be refreshed in one tx (burn -1 + mint +1 of the
+     * same asset nets to a 0-value mint, which the ledger rejects). So we run
+     * two txs back-to-back: a burn, then a re-mint with the new metadata. Both
+     * are funded + signed by the customer (one wallet prompt each) and
+     * co-signed server-side by the policy wallet.
+     */
+
+    function buildSignSubmit(modal, state, changeAddr, opts) {
+        // opts: { step, burn_log_id?, label }
+        var body = {
+            policy_id:        state.selected.policy_id,
+            asset_name:       state.selected.asset_name,
+            customer_address: changeAddr,
+            step:             opts.step,
+        };
+        if (opts.burn_log_id) body.burn_log_id = opts.burn_log_id;
+
+        return fetch(cfg.rest_url + 'upgrade/build', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': cfg.nonce || '' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body),
+        })
+        .then(parseJson)
+        .then(function (build) {
+            if (!build.ok) throw new Error((opts.label + ' build: ') + (build.error || 'failed'));
+            setBtn(modal, 'Sign the ' + opts.label + ' in your wallet…');
+            // CIP-30 partial sign returns the customer's witness set (hex).
+            // We send the UNSIGNED tx + that witness; the server adds the
+            // policy witness and submits {transaction, signatures} to Anvil.
+            return state.api.signTx(build.unsigned_tx_hex, true).then(function (witnessSetHex) {
+                setBtn(modal, 'Submitting the ' + opts.label + '…');
+                return fetch(cfg.rest_url + 'upgrade/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': cfg.nonce || '' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        log_id:      build.log_id,
+                        transaction: build.unsigned_tx_hex,
+                        signatures:  [witnessSetHex],
+                    }),
+                }).then(parseJson).then(function (sub) {
+                    if (!sub.ok) throw new Error((opts.label + ' submit: ') + (sub.error || 'failed'));
+                    return { build: build, tx_hash: sub.tx_hash };
+                });
+            });
+        });
+    }
+
+    function setBtn(modal, text) {
+        var btn = modal.querySelector('[data-action="upgrade"]');
+        if (btn) { btn.disabled = true; btn.textContent = text; }
+    }
+    function resetBtn(modal, text) {
+        var btn = modal.querySelector('[data-action="upgrade"]');
+        if (btn) { btn.disabled = false; btn.textContent = text || 'Upgrade NFT'; }
+    }
 
     function runUpgrade(modal, state) {
         if (!state.selected || !state.api) {
             showError(modal, 'Wallet or selection missing. Restart the modal.');
             return;
         }
-        var btn = modal.querySelector('[data-action="upgrade"]');
-        var oldText = btn ? btn.textContent : '';
-        if (btn) { btn.disabled = true; btn.textContent = 'Building transaction…'; }
+        setBtn(modal, 'Preparing…');
 
-        // Need a customer payment address (not stake) for change/output.
-        // CIP-30 wallets expose this via getChangeAddress() — hex CBOR.
-        // The backend bech32-normalizes it via Anvil's parse endpoint.
+        // CIP-30 getChangeAddress() returns a hex payment address used to fund
+        // both txs and receive the re-minted NFT.
         state.api.getChangeAddress()
             .then(function (changeAddr) {
-                return fetch(cfg.rest_url + 'upgrade/build', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': cfg.nonce || '' },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({
-                        policy_id:        state.selected.policy_id,
-                        asset_name:       state.selected.asset_name,
-                        customer_address: changeAddr,
-                    }),
-                }).then(parseJson);
-            })
-            .then(function (body) {
-                if (!body.ok) throw new Error(body.error || 'Build failed.');
-                if (btn) btn.textContent = 'Sign in your wallet…';
-                state.buildResult = body;
-                // CIP-30 partial-sign: signTx(tx, true) returns just the
-                // witness set. We want the full signed tx merged, so call
-                // with true and rely on the server adding the policy sig.
-                // BUT wallets vary in how they return — Eternl returns a
-                // hex witness set, Lace returns a fully-replaced tx. To
-                // keep this simple we call signTx(tx, true) and assume the
-                // server's CardanoCLI helper can apply the policy witness
-                // to either shape (it accepts the customer-witnessed tx as
-                // input).
-                return state.api.signTx(body.unsigned_tx_hex, true)
-                    .then(function (witnessOrTx) {
-                        // The backend's CardanoCLI signs the full tx hex
-                        // it receives. If the wallet gave us a witness
-                        // (Eternl-style), we need to merge it back into the
-                        // unsigned tx first. For Lace which returns the
-                        // full signed tx, we pass that directly.
-                        //
-                        // Heuristic: hex length > 1000 is almost certainly
-                        // a full tx; shorter is a witness set. This is a
-                        // load-bearing assumption we should refine once we
-                        // have a sandbox to test against.
-                        return { witnessOrTx: witnessOrTx, build: body };
+                // 1) Burn the existing asset.
+                return buildSignSubmit(modal, state, changeAddr, { step: 'burn', label: 'burn transaction' })
+                    .then(function (burn) {
+                        // 2) Re-mint the same asset name with the new metadata,
+                        //    linked to the burn so its resolved metadata carries
+                        //    over. NOTE: back-to-back per design — if the wallet
+                        //    is short on spare UTxOs, Anvil may reselect the
+                        //    burn's input and the re-mint can fail; retry then.
+                        return buildSignSubmit(modal, state, changeAddr, {
+                            step: 'remint',
+                            burn_log_id: burn.build.log_id,
+                            label: 're-mint transaction',
+                        }).then(function (remint) {
+                            return { burn: burn, remint: remint };
+                        });
                     });
             })
-            .then(function (payload) {
-                if (btn) btn.textContent = 'Submitting…';
-                return fetch(cfg.rest_url + 'upgrade/submit', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': cfg.nonce || '' },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({
-                        log_id:        payload.build.log_id,
-                        signed_tx_hex: payload.witnessOrTx,
-                    }),
-                }).then(parseJson);
-            })
-            .then(function (body) {
-                if (!body.ok) throw new Error(body.error || 'Submit failed.');
-                if (btn) { btn.textContent = oldText || 'Upgrade NFT'; btn.disabled = false; }
-                showSuccess(modal, body.tx_hash);
+            .then(function (res) {
+                resetBtn(modal, 'Upgrade NFT');
+                showSuccess(modal, res.remint.tx_hash, res.burn.tx_hash);
             })
             .catch(function (err) {
-                if (btn) { btn.textContent = oldText || 'Upgrade NFT'; btn.disabled = false; }
+                resetBtn(modal, 'Upgrade NFT');
                 showError(modal, (err && err.message) ? err.message : String(err));
             });
     }
@@ -151,18 +171,23 @@
         });
     }
 
-    function showSuccess(modal, txHash) {
+    function showSuccess(modal, remintHash, burnHash) {
         // Replace the diff step content with a success card. Keeps the
-        // modal open so the customer can see the tx hash + explore link.
+        // modal open so the customer can see the tx hashes + explore links.
         var step = modal.querySelector('.kg-cu-step[data-step="diff"]');
         if (!step) return;
+        var burnLine = burnHash
+            ? '<p><strong>Burn tx:</strong></p>' +
+              '<pre style="word-break:break-all">' + escapeHtml(burnHash) + '</pre>'
+            : '';
         step.innerHTML =
             '<h2>Upgrade submitted</h2>' +
-            '<p>The burn-and-re-mint transaction is on its way to the chain. Your new metadata should appear in your wallet within ~30 seconds.</p>' +
-            '<p><strong>Transaction:</strong></p>' +
-            '<pre style="word-break:break-all">' + escapeHtml(txHash) + '</pre>' +
+            '<p>Both transactions are on their way to the chain — the old NFT is burned and the same asset is re-minted with the new metadata. It should appear in your wallet within ~1 minute.</p>' +
+            burnLine +
+            '<p><strong>Re-mint tx:</strong></p>' +
+            '<pre style="word-break:break-all">' + escapeHtml(remintHash) + '</pre>' +
             '<p>' +
-              '<a class="button" href="https://cardanoscan.io/transaction/' + encodeURIComponent(txHash) + '" target="_blank" rel="noopener">View on Cardanoscan</a> ' +
+              '<a class="button" href="https://cardanoscan.io/transaction/' + encodeURIComponent(remintHash) + '" target="_blank" rel="noopener">View on Cardanoscan</a> ' +
               '<button type="button" class="button" data-close>Close</button>' +
             '</p>';
         // Re-wire the close button we just injected.
