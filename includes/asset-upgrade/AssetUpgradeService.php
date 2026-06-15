@@ -142,11 +142,14 @@ class AssetUpgradeService {
 
             // Burn leg: mint -1, no metadata, no asset output. The NFT's UTxO
             // is consumed (auto-selected from changeAddress); its ADA returns
-            // as change.
+            // as change. `version: cip25` is REQUIRED on every mint entry by
+            // Anvil's input schema even for a metadata-less burn — omitting it
+            // returns "Input validation failed" (mint[0].version).
             $tx_request = [
                 'changeAddress' => $customer_address_bech,
                 'mint' => [
                     [
+                        'version'   => 'cip25',
                         'policyId'  => $policy_id,
                         'quantity'  => -1,
                         'assetName' => $asset_name_field,
