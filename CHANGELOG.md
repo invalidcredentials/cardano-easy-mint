@@ -2,6 +2,17 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.3.5] - 2026-06-14
+
+**Root-cause fix for the `/upgrade/eligible` "502".** It was never a timeout, OOM, or worker crash (4.3.3/4.3.4 chased those and changed nothing). It was an address-normalization bug returning a clean application 502 that Cloudflare then re-skinned as its own "Bad gateway" HTML page — which is why the browser saw `<!DOCTYPE`/502 instead of the real error.
+
+### Fixed
+- **Reward (stake) address normalization.** CIP-30 `getRewardAddresses()` returns the reward address as raw hex (header `0xe?`/`0xf?` + 28-byte credential). `route_eligible` passed it to `AnvilAPI::convertAddressToBech32()`, which only handles *payment* addresses and returns a reward address unchanged. The `is_stake` check then failed, the request fell into the unsupported payment-address branch, and returned a 502 ("Payment-address lookup not yet supported"). Eligibility now bech32-encodes the hex reward address itself (new self-contained `bech32_encode`, BIP-173) → correct `stake1…`, then queries Blockfrost normally. Verified locally end-to-end against mainnet: the test wallet's `Viperions_2645` now resolves in <1s.
+- Bundled a minimal `bech32_encode` + `normalize_stake_address` helper; no new dependency.
+
+### Note
+- The diagnostics added in 4.3.3/4.3.4 (checkpoint trace, `/upgrade/diag`, N+1 cap) are retained — they're harmless and useful — but the N+1 was not the cause here (the test wallet holds only 7 assets).
+
 ## [4.3.4] - 2026-06-14
 
 The N+1 cap (4.3.3) didn't clear the `/upgrade/eligible` 502, so the worker is dying earlier than the per-asset loop. Adds self-service diagnostics that don't require server-log access.
