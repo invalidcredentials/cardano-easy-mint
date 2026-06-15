@@ -185,14 +185,19 @@ class AssetUpgradePublicController {
             return new \WP_REST_Response(['error' => 'address is required'], 400);
         }
 
-        // Normalize. AnvilAPI handles both payment + stake hex; if it's
-        // already bech32 it short-circuits and returns as-is.
-        $log('before address normalize (Anvil parse)');
-        $address = AnvilAPI::convertAddressToBech32($address_in);
-        if (!is_string($address) || $address === '') {
+        // Normalize the wallet address to a bech32 stake address.
+        //
+        // CIP-30 getRewardAddresses() returns the reward address as raw hex
+        // (header byte 0xe?/0xf? + 28-byte credential). Blockfrost needs the
+        // bech32 stake1.../stake_test1... form, so we encode it ourselves —
+        // AnvilAPI::convertAddressToBech32() only handles *payment* addresses
+        // and returns a reward address unchanged, which used to make this fall
+        // through to the unsupported payment-address path and 502.
+        $log('before address normalize');
+        [$address, $is_stake] = self::normalize_stake_address($address_in);
+        if ($address === '') {
             return new \WP_REST_Response(['error' => 'address could not be parsed'], 400);
         }
-        $is_stake = str_starts_with($address, 'stake1') || str_starts_with($address, 'stake_test1');
         $log('address normalized, is_stake=' . ($is_stake ? '1' : '0') . ' prefix=' . substr($address, 0, 12));
 
         // Pull all active policy-wide rows + their per-asset rows in one shot.
@@ -365,6 +370,97 @@ class AssetUpgradePublicController {
             'status'=> 0,
             'data'  => [],
         ];
+    }
+
+    /**
+     * Normalize a wallet address to a bech32 stake address.
+     *
+     * Accepts:
+     *   - bech32 stake (stake1.../stake_test1...) -> returned as-is
+     *   - hex reward address (header 0xe?/0xf? + 28-byte cred, 58 hex) ->
+     *     bech32-encoded locally (mainnet header low-nibble 1 -> 'stake',
+     *     testnet 0 -> 'stake_test')
+     *   - anything else (e.g. a payment address) -> handed to Anvil's parser;
+     *     is_stake reflects whether that produced a stake address.
+     *
+     * @return array{0:string,1:bool} [bech32_address_or_empty, is_stake]
+     */
+    private static function normalize_stake_address(string $in): array {
+        $in = trim($in);
+        if ($in === '') return ['', false];
+
+        if (preg_match('/^stake(_test)?1[0-9a-z]+$/i', $in)) {
+            return [strtolower($in), true];
+        }
+
+        // Hex reward address: 29 bytes, first byte high nibble 0xe (key) or
+        // 0xf (script), low nibble is the network id (1=mainnet, 0=testnet).
+        if (preg_match('/^[0-9a-fA-F]{58}$/', $in)) {
+            $bytes = hex2bin($in);
+            if ($bytes !== false && strlen($bytes) === 29) {
+                $hi  = (ord($bytes[0]) >> 4) & 0x0f;
+                $net = ord($bytes[0]) & 0x0f;
+                if ($hi === 0xe || $hi === 0xf) {
+                    $hrp = ($net === 1) ? 'stake' : 'stake_test';
+                    return [self::bech32_encode($hrp, $bytes), true];
+                }
+            }
+        }
+
+        // Fall back to Anvil for payment addresses / unknown formats.
+        $b = AnvilAPI::convertAddressToBech32($in, 'mint');
+        if (!is_string($b) || $b === '') return ['', false];
+        $is_stake = (strpos($b, 'stake1') === 0 || strpos($b, 'stake_test1') === 0);
+        return [$b, $is_stake];
+    }
+
+    /**
+     * Minimal bech32 encoder (BIP-173, standard checksum constant 1 — the
+     * form Cardano uses for addresses; no 90-char length cap). $data is the
+     * raw byte string to encode under human-readable prefix $hrp.
+     */
+    private static function bech32_encode(string $hrp, string $data): string {
+        $charset = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+
+        // 8-bit bytes -> 5-bit groups.
+        $vals = [];
+        $acc = 0;
+        $bits = 0;
+        for ($i = 0, $n = strlen($data); $i < $n; $i++) {
+            $acc = ($acc << 8) | ord($data[$i]);
+            $bits += 8;
+            while ($bits >= 5) {
+                $bits -= 5;
+                $vals[] = ($acc >> $bits) & 31;
+            }
+        }
+        if ($bits > 0) $vals[] = ($acc << (5 - $bits)) & 31;
+
+        $polymod = function (array $values): int {
+            $gen = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+            $chk = 1;
+            foreach ($values as $v) {
+                $b = $chk >> 25;
+                $chk = (($chk & 0x1ffffff) << 5) ^ $v;
+                for ($i = 0; $i < 5; $i++) {
+                    if (($b >> $i) & 1) $chk ^= $gen[$i];
+                }
+            }
+            return $chk;
+        };
+
+        $hrp_exp = [];
+        for ($i = 0, $n = strlen($hrp); $i < $n; $i++) $hrp_exp[] = ord($hrp[$i]) >> 5;
+        $hrp_exp[] = 0;
+        for ($i = 0, $n = strlen($hrp); $i < $n; $i++) $hrp_exp[] = ord($hrp[$i]) & 31;
+
+        $pm = $polymod(array_merge($hrp_exp, $vals, [0, 0, 0, 0, 0, 0])) ^ 1;
+        $chk = [];
+        for ($i = 0; $i < 6; $i++) $chk[] = ($pm >> (5 * (5 - $i))) & 31;
+
+        $out = $hrp . '1';
+        foreach (array_merge($vals, $chk) as $d) $out .= $charset[$d];
+        return $out;
     }
 
     /**
