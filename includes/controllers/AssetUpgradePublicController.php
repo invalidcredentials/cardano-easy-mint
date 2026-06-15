@@ -45,9 +45,11 @@ class AssetUpgradePublicController {
             'callback'            => [self::class, 'route_build'],
             'permission_callback' => '__return_true',
             'args'                => [
-                'policy_id'        => ['required' => true, 'type' => 'string'],
-                'asset_name'       => ['required' => true, 'type' => 'string'],
-                'customer_address' => ['required' => true, 'type' => 'string'],
+                'policy_id'        => ['required' => true,  'type' => 'string'],
+                'asset_name'       => ['required' => true,  'type' => 'string'],
+                'customer_address' => ['required' => true,  'type' => 'string'],
+                'step'             => ['required' => false, 'type' => 'string'],   // 'burn' | 'remint'
+                'burn_log_id'      => ['required' => false, 'type' => 'integer'],  // links re-mint to its burn
             ],
         ]);
         register_rest_route(self::NAMESPACE, '/upgrade/diag', [
@@ -60,8 +62,9 @@ class AssetUpgradePublicController {
             'callback'            => [self::class, 'route_submit'],
             'permission_callback' => '__return_true',
             'args'                => [
-                'log_id'         => ['required' => true, 'type' => 'integer'],
-                'signed_tx_hex'  => ['required' => true, 'type' => 'string'],
+                'log_id'      => ['required' => true, 'type' => 'integer'],
+                'transaction' => ['required' => true, 'type' => 'string'],  // unsigned tx hex from build
+                'signatures'  => ['required' => true],                       // array of customer witness-set hexes
             ],
         ]);
     }
@@ -118,10 +121,12 @@ class AssetUpgradePublicController {
 
     public static function route_build(\WP_REST_Request $req) {
         return self::guard(function () use ($req) {
-            $policy_id  = (string) $req->get_param('policy_id');
-            $asset_name = (string) $req->get_param('asset_name');
-            $customer   = (string) $req->get_param('customer_address');
-            $result = AssetUpgradeService::build($policy_id, $asset_name, $customer);
+            $policy_id   = (string) $req->get_param('policy_id');
+            $asset_name  = (string) $req->get_param('asset_name');
+            $customer    = (string) $req->get_param('customer_address');
+            $step        = (string) ($req->get_param('step') ?: 'burn');
+            $burn_log_id = (int) $req->get_param('burn_log_id');
+            $result = AssetUpgradeService::build($policy_id, $asset_name, $customer, $step, $burn_log_id);
             $status = !empty($result['ok']) ? 200 : 400;
             return new \WP_REST_Response($result, $status);
         });
@@ -129,9 +134,15 @@ class AssetUpgradePublicController {
 
     public static function route_submit(\WP_REST_Request $req) {
         return self::guard(function () use ($req) {
-            $log_id        = (int) $req->get_param('log_id');
-            $signed_tx_hex = (string) $req->get_param('signed_tx_hex');
-            $result = AssetUpgradeService::submit($log_id, $signed_tx_hex);
+            $log_id      = (int) $req->get_param('log_id');
+            $transaction = (string) $req->get_param('transaction');
+            $signatures  = $req->get_param('signatures');
+            if (is_string($signatures)) {
+                $decoded = json_decode($signatures, true);
+                $signatures = is_array($decoded) ? $decoded : array_filter([$signatures]);
+            }
+            if (!is_array($signatures)) $signatures = [];
+            $result = AssetUpgradeService::submit($log_id, $transaction, $signatures);
             $status = !empty($result['ok']) ? 200 : 400;
             return new \WP_REST_Response($result, $status);
         });

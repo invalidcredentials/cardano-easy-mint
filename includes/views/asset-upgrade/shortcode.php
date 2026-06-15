@@ -80,7 +80,7 @@ if (!defined('ABSPATH')) exit;
                     <button type="button" class="button button-primary" data-action="upgrade">Upgrade NFT</button>
                 </div>
                 <p class="kg-cu-phase-note">
-                    <em>Note: the transaction build &amp; sign flow is in the next release. This button is currently a preview.</em>
+                    <em>You'll be asked to sign <strong>twice</strong> — once to burn the old NFT, then once to re-mint it with the new metadata. Same NFT, same fingerprint.</em>
                 </p>
             </section>
 

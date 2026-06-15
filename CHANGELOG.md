@@ -2,6 +2,21 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.3.6] - 2026-06-14
+
+**Splits the burn-and-re-mint into two transactions.** The single-tx approach hit a hard ledger rule: a burn (-1) and re-mint (+1) of the same `(policy, assetName)` net to a 0-value mint, which Cardano rejects ("MintAssets cannot be created with 0 value"). CIP-25 metadata on a fixed-supply 1/1 can only be refreshed across two txs.
+
+### Changed
+- **`AssetUpgradeService::build($policy_id, $asset_name, $customer_address, $step, $burn_log_id)`** now builds one leg at a time:
+  - `step='burn'` — `mint: [{ policyId, assetName, quantity: -1 }]` only (no metadata, no asset output); the NFT's UTxO is auto-selected from `changeAddress` and its ADA returns as change. Resolves the target metadata up front and stashes it in a transient keyed by the burn's log id (so policy-wide *patch* specs survive the burn, after which the on-chain metadata is gone).
+  - `step='remint'` — `mint: [{ version:'cip25', policyId, assetName, quantity: +1, metadata }]` + an `outputs[]` returning the fresh asset to the customer; reads the stashed metadata via `burn_log_id` (full-mode falls back to re-resolving from the DB).
+- **`AssetUpgradeService::submit($log_id, $transaction, $signatures)`** now reuses the proven mint submit path (`AnvilAPI::submitTransaction`): the client sends the unsigned tx + its CIP-30 witness set, and the server adds the policy-wallet witness before dispatching. (Previously it re-signed a full tx, an inconsistent path.)
+- **`/upgrade/build`** accepts `step` (`burn`|`remint`) + `burn_log_id`; **`/upgrade/submit`** accepts `transaction` + `signatures[]` instead of `signed_tx_hex`.
+- **`upgrade.js`** orchestrates the two legs back-to-back: build→sign→submit the burn, then build→sign→submit the re-mint (two wallet prompts). Success screen shows both tx hashes. The modal's stale "preview only" note is replaced with a "you'll sign twice" explainer.
+
+### Known caveat
+- Per design decision, the two txs are submitted **back-to-back without waiting for the burn to confirm**. On a wallet with few spare UTxOs, Anvil may reselect the burn's input when building the re-mint, causing the re-mint to fail; retrying (after the burn confirms) resolves it. Revisit with confirmation-gating if it bites in practice.
+
 ## [4.3.5] - 2026-06-14
 
 **Root-cause fix for the `/upgrade/eligible` "502".** It was never a timeout, OOM, or worker crash (4.3.3/4.3.4 chased those and changed nothing). It was an address-normalization bug returning a clean application 502 that Cloudflare then re-skinned as its own "Bad gateway" HTML page — which is why the browser saw `<!DOCTYPE`/502 instead of the real error.
