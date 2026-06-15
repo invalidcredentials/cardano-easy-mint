@@ -37,6 +37,129 @@ class NFTCheckoutController {
         // Archive system
         add_action('wp_ajax_cardano_archive_policy', [self::class, 'ajaxArchivePolicy']);
         add_action('wp_ajax_cardano_unarchive_policy', [self::class, 'ajaxUnarchivePolicy']);
+
+        // Bulk JSON import (mint-ready, verbatim) — batched from the Mint Manager
+        add_action('wp_ajax_cardano_mint_import_assets', [self::class, 'ajaxImportAssets']);
+    }
+
+    /**
+     * Bulk-import mint-ready assets from JSON. Each asset is stored as its own
+     * quantity-1 row with metadata_mode='verbatim' so it mints exactly as
+     * provided (explicit on-chain token name + the metadata object unchanged).
+     *
+     * Called in batches by the Mint Manager "Import JSON" path. The first
+     * batch with collection_id=0 + policy_mode=new creates the collection
+     * (variant A) and returns its id; subsequent batches pass that id back.
+     *
+     * POST:
+     *   assets            JSON array of { assetName, metadata }
+     *   collection_id     0 to create a new collection, else append to it
+     *   policy_mode       'new' | 'existing'
+     *   policyid, policy_json, expirationdate, unlimited, price, royalty,
+     *   royaltyaddress, mintsallowedperwallet, title   (policy-level fields)
+     */
+    public static function ajaxImportAssets() {
+        check_ajax_referer('cardanocheckoutnonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Insufficient permissions']);
+        }
+
+        MintModel::add_multi_asset_columns();
+
+        $assets_raw = isset($_POST['assets']) ? wp_unslash($_POST['assets']) : '';
+        $assets = json_decode($assets_raw, true);
+        if (!is_array($assets) || empty($assets)) {
+            wp_send_json_error(['message' => 'No valid assets in this batch (expected a JSON array).']);
+        }
+
+        $collection_id = isset($_POST['collection_id']) ? intval($_POST['collection_id']) : 0;
+        $policy_mode   = sanitize_text_field($_POST['policy_mode'] ?? 'existing');
+        $policyid      = sanitize_text_field($_POST['policyid'] ?? '');
+        if (!preg_match('/^[a-f0-9]{56}$/i', $policyid)) {
+            wp_send_json_error(['message' => 'A valid 56-char Policy ID is required before importing.']);
+        }
+
+        // Validate the policy JSON the same way the form save does.
+        $policy_json_validated = null;
+        $policy_json_raw = isset($_POST['policy_json']) ? wp_unslash($_POST['policy_json']) : '';
+        if ($policy_json_raw) {
+            $decoded = json_decode($policy_json_raw, true);
+            if (json_last_error() === JSON_ERROR_NONE && isset($decoded['policyId'], $decoded['schema'])) {
+                $policy_json_validated = wp_json_encode($decoded);
+            }
+        }
+
+        $policy_fields = [
+            'title'                 => sanitize_text_field($_POST['title'] ?? ''),
+            'policyid'              => $policyid,
+            'policy_json'           => $policy_json_validated,
+            'expirationdate'        => sanitize_text_field($_POST['expirationdate'] ?? ''),
+            'unlimited'             => !empty($_POST['unlimited']) ? 1 : 0,
+            'price'                 => isset($_POST['price']) ? floatval($_POST['price']) : 0.00,
+            'royalty'               => sanitize_text_field($_POST['royalty'] ?? ''),
+            'royaltyaddress'        => sanitize_text_field($_POST['royaltyaddress'] ?? ''),
+            'mintsallowedperwallet' => isset($_POST['mintsallowedperwallet']) ? intval($_POST['mintsallowedperwallet']) : 0,
+        ];
+
+        $inserted = 0;
+        $errors   = [];
+        foreach ($assets as $i => $asset) {
+            $label = '#' . ($i + 1);
+            if (!is_array($asset) || empty($asset['assetName']) || !isset($asset['metadata']) || !is_array($asset['metadata'])) {
+                $errors[] = "$label: missing assetName or metadata object.";
+                continue;
+            }
+            $assetName = trim((string) $asset['assetName']);
+
+            // Cardano token-name rules: 1–32 BYTES, and we keep it to safe
+            // printable chars so the utf8 round-trip on-chain is lossless.
+            if ($assetName === '' || strlen($assetName) > 32) {
+                $errors[] = "$label ($assetName): token name must be 1–32 bytes.";
+                continue;
+            }
+            if (!preg_match('/^[\x20-\x7E]+$/', $assetName)) {
+                $errors[] = "$label ($assetName): token name has non-printable/again non-ASCII characters.";
+                continue;
+            }
+            if (MintModel::onchainAssetNameExists($policyid, $assetName)) {
+                $errors[] = "$label ($assetName): already exists under this policy — skipped.";
+                continue;
+            }
+
+            // First asset of a brand-new collection becomes variant A and
+            // seeds collection_id; everything after is a numeric variant.
+            $is_first_new = ($collection_id === 0 && $inserted === 0 && $policy_mode === 'new');
+            $variant = $is_first_new ? 'A' : (string) (MintModel::getCollectionAssetCount($collection_id) + 1);
+
+            $mintData = array_merge($policy_fields, [
+                'collection_id'  => $collection_id ?: null,
+                'variant'        => $variant,
+                'asset_name'     => $assetName,                       // explicit on-chain token name
+                'nft_metadata'   => wp_json_encode($asset['metadata']), // stored VERBATIM
+                'metadata_mode'  => 'verbatim',
+                'quantity_total' => 1,
+                'quantity_minted'=> 0,
+                'status'         => 'Active',
+            ]);
+
+            $new_id = MintModel::insert_active_mint($mintData);
+            if (!$new_id) {
+                $errors[] = "$label ($assetName): database insert failed.";
+                continue;
+            }
+            $inserted++;
+            // Seed collection_id from the first inserted row so the rest of
+            // this batch (and later batches) append to the same collection.
+            if ($collection_id === 0) {
+                $collection_id = (int) $new_id;
+            }
+        }
+
+        wp_send_json_success([
+            'inserted'      => $inserted,
+            'collection_id' => $collection_id,
+            'errors'        => $errors,
+        ]);
     }
 
     public static function ajaxPinToIPFS() {

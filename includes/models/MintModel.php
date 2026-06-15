@@ -290,6 +290,15 @@ class MintModel {
             error_log("Cardano Mint: Added 'archived' column to active mints table");
         }
 
+        // Add metadata_mode column. NULL/'' = normal (form-built, CIP-25
+        // reconstructed at mint time); 'verbatim' = bulk-imported mint-ready
+        // JSON that must be minted exactly as stored, with asset_name used as
+        // the explicit on-chain token name and no #seq suffix.
+        $metadata_mode_exists = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'metadata_mode'");
+        if (empty($metadata_mode_exists)) {
+            $wpdb->query("ALTER TABLE $table ADD COLUMN metadata_mode varchar(16) DEFAULT NULL AFTER nft_metadata");
+        }
+
         // Add index on policyid if not exists
         $indexes = $wpdb->get_results("SHOW INDEX FROM $table WHERE Key_name = 'idx_policyid'");
         if (empty($indexes)) {
@@ -336,6 +345,7 @@ class MintModel {
             'preview_ipfs_cid_manual' => isset($mintData['preview_ipfs_cid_manual']) ? $mintData['preview_ipfs_cid_manual'] : null,
             'preview_media_type' => isset($mintData['preview_media_type']) ? $mintData['preview_media_type'] : null,
             'nft_metadata' => isset($mintData['nft_metadata']) ? $mintData['nft_metadata'] : null,
+            'metadata_mode' => isset($mintData['metadata_mode']) ? $mintData['metadata_mode'] : null,
             'policy_json' => isset($mintData['policy_json']) ? $mintData['policy_json'] : null,
             'quantity_total' => isset($mintData['quantity_total']) ? intval($mintData['quantity_total']) : 1,
             'quantity_minted' => isset($mintData['quantity_minted']) ? intval($mintData['quantity_minted']) : 0,
@@ -733,6 +743,33 @@ class MintModel {
         // Find the next available letter
         $lastVariant = end($variants);
         return chr(ord($lastVariant) + 1);
+    }
+
+    /**
+     * Number of asset rows already in a collection. Used to assign sequential
+     * numeric variants for bulk JSON imports (the A/B/C scheme tops out at 26;
+     * imports can be thousands, so we number them instead).
+     */
+    public static function getCollectionAssetCount($collectionId) {
+        global $wpdb;
+        $table = self::get_active_mints_table();
+        return (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table WHERE collection_id = %d", intval($collectionId)
+        ));
+    }
+
+    /**
+     * True if an on-chain token name (asset_name) is already used under this
+     * policy. Asset names must be unique within a policy on Cardano, so we
+     * block dup imports before anything touches the chain.
+     */
+    public static function onchainAssetNameExists($policyid, $assetName) {
+        global $wpdb;
+        $table = self::get_active_mints_table();
+        return (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table WHERE policyid = %s AND asset_name = %s",
+            (string) $policyid, (string) $assetName
+        )) > 0;
     }
 
     /**

@@ -2,6 +2,18 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.4.0] - 2026-06-15
+
+Adds a **bulk JSON import path** to the Mint Manager for collections that already have finished, mint-ready metadata — skip the per-asset form entirely.
+
+### Added
+- **Mint Manager → "Import JSON (bulk)"** path selector (alongside "Build NFT"). Paste or upload a JSON array of `{ "assetName": "...", "metadata": { ... } }` objects; each becomes its own **quantity-1** asset under the selected policy, minted **verbatim** in random order (the existing weighted-random picker handles ordering). Includes a paginated preview (thumbnail + on-chain token name + display name), per-asset validation (1–32-byte printable token name, in-list + on-chain duplicate detection), and a **batched** insert (50/request via AJAX) so thousand-asset collections don't time out. The policy-level fields (title, expiration, Policy ID, price, royalty, mints-per-wallet) are still set once at the top and applied to every imported asset.
+- **`cardano_mint_import_assets`** admin AJAX endpoint backing the import (validates + inserts each batch; first batch of a new policy seeds the collection as variant A and returns its id for subsequent batches).
+- **Verbatim mint path in `AnvilAPI::buildMintTransaction`.** When an asset is flagged `metadata_mode='verbatim'`, the minter uses the stored on-chain token name and the stored metadata object **exactly** — no generated `NFT_<ts>_<seq>` name, no `#NNN` suffix, no files[]/CIP-25 reconstruction, quantity forced to 1. (Form-built assets are unchanged.)
+
+### Database
+- New `metadata_mode` column on `wp_cardanonftactivemints` (`NULL` = normal/form-built, `'verbatim'` = bulk import). Added via the existing JIT column-migration. Imported assets use **numeric variants** beyond `A` (the A–Z `getNextVariant` scheme tops out at 26; the random picker selects by row id + quantity weight, so letters are irrelevant for bulk collections).
+
 ## [4.3.9] - 2026-06-15
 
 Removes the temporary 502-investigation diagnostics now that the root cause is found and fixed (the submit endpoint's oversized response/headers were tripping nginx's default 8k `fastcgi_buffer_size` → 502; resolved server-side by raising the FastCGI buffers, and here by no longer emitting the diagnostic noise).

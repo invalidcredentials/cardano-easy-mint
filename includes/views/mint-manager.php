@@ -107,6 +107,19 @@ if ($editMode && $editData) {
                 </div>
             </div>
         </div>
+
+        <!-- Build path: fill the form, or bulk-import mint-ready JSON -->
+        <div id="cem-build-path" style="background:#eef6ec; padding:16px 20px; border-left:4px solid #46812b; margin-bottom:20px;">
+            <h2 style="margin-top:0;">How do you want to add assets?</h2>
+            <label style="display:block; margin-bottom:8px;">
+                <input type="radio" name="cem_path" value="build" checked onchange="cemTogglePath()" />
+                <strong>Build NFT</strong> — fill out the form below (image, name, metadata) for a single asset.
+            </label>
+            <label style="display:block;">
+                <input type="radio" name="cem_path" value="import" onchange="cemTogglePath()" />
+                <strong>Import JSON (bulk)</strong> — paste/upload mint-ready metadata. Each asset becomes a quantity-1 mint, minted verbatim in random order. Set the policy fields below (title, expiration, Policy ID, price, royalty) first, then import.
+            </label>
+        </div>
         <?php endif; ?>
 
         <table class="form-table">
@@ -503,7 +516,44 @@ if ($editMode && $editData) {
                 </td>
             </tr>
         </table>
-        <p class="submit">
+
+        <?php if (!$editMode): ?>
+        <!-- Bulk JSON import panel (shown when the "Import JSON" path is chosen) -->
+        <div id="cem-import-panel" style="display:none; border:2px solid #46812b; border-radius:8px; padding:20px; margin:10px 0 20px;">
+            <h2 style="margin-top:0;">Import mint-ready JSON</h2>
+            <p class="description" style="margin-bottom:12px;">
+                Paste a JSON array of <code>{ "assetName": "...", "metadata": { ... } }</code> objects, or upload a <code>.json</code> file.
+                Each entry becomes one quantity-1 asset minted <strong>verbatim</strong>. Token names must be unique within the policy and 1–32 bytes.
+                Make sure the <strong>Policy ID</strong>, <strong>Collection Title</strong>, <strong>Expiration</strong>, <strong>Price</strong> and <strong>Royalty</strong> above are set first.
+            </p>
+            <p>
+                <label class="button" style="cursor:pointer;">Upload .json
+                    <input type="file" id="cem-import-file" accept=".json,.jsonl,application/json" style="display:none;" />
+                </label>
+                <span id="cem-import-file-name" style="margin-left:8px; color:#666; font-size:12px;"></span>
+            </p>
+            <textarea id="cem-import-json" rows="10" style="width:100%; font-family:monospace; font-size:12px;"
+                placeholder='[ { "assetName": "Viperions_0002", "metadata": { "name": "Abyssal Champion", "image": "ipfs://...", "attributes": { } } } ]'></textarea>
+            <p>
+                <button type="button" class="button" id="cem-import-parse">Parse &amp; Preview</button>
+                <span id="cem-import-summary" style="margin-left:10px; font-weight:600;"></span>
+            </p>
+            <div id="cem-import-errors" style="display:none; margin:10px 0; padding:10px; background:#fff3cd; border-left:4px solid #f0c040; border-radius:4px; max-height:180px; overflow:auto; font-size:12px;"></div>
+            <div id="cem-import-preview-wrap" style="display:none;">
+                <table class="widefat striped" style="margin-top:10px;">
+                    <thead><tr><th style="width:50px;">#</th><th style="width:54px;">Img</th><th>Token name (on-chain)</th><th>Display name</th></tr></thead>
+                    <tbody id="cem-import-preview-body"></tbody>
+                </table>
+                <div id="cem-import-pager" style="margin-top:8px;"></div>
+            </div>
+            <p style="margin-top:16px;">
+                <button type="button" class="button button-primary" id="cem-import-go" disabled>Import assets</button>
+                <span id="cem-import-progress" style="margin-left:10px;"></span>
+            </p>
+        </div>
+        <?php endif; ?>
+
+        <p class="submit" id="cem-build-submit">
             <input type="submit" name="mintmanagersave" id="submit-mint-btn" class="button-primary"
                    value="<?php echo $editMode ? 'Update Asset' : 'Add This Asset'; ?>" />
             <?php if ($editMode): ?>
@@ -512,6 +562,137 @@ if ($editMode && $editData) {
         </p>
     </form>
 </div>
+
+<?php if (!$editMode): ?>
+<script>
+(function(){
+    var parsed = [], page = 0, perPage = 25;
+    var nonce = '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>';
+
+    window.cemTogglePath = function(){
+        var sel = document.querySelector('input[name=cem_path]:checked');
+        var importMode = sel && sel.value === 'import';
+        // Hide the per-asset form rows in import mode (policy-level rows stay).
+        ['upload-image-btn','upload-preview-image-btn','cardanonftassetname','cardanonftquantity','metadata-builder'].forEach(function(id){
+            var el = document.getElementById(id); if(!el) return;
+            var tr = el.closest('tr'); if(tr) tr.style.display = importMode ? 'none' : '';
+        });
+        var ci = document.getElementById('collection-image-row'); if(ci && importMode) ci.style.display = 'none';
+        var sub = document.getElementById('cem-build-submit'); if(sub) sub.style.display = importMode ? 'none' : '';
+        var panel = document.getElementById('cem-import-panel'); if(panel) panel.style.display = importMode ? 'block' : 'none';
+    };
+
+    function ipfs(u){ return (typeof u==='string' && u.indexOf('ipfs://')===0) ? 'https://ipfs.io/ipfs/'+u.slice(7) : (u||''); }
+    function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+    function byteLen(s){ return unescape(encodeURIComponent(s)).length; }
+
+    function renderPage(){
+        var body=document.getElementById('cem-import-preview-body'); body.innerHTML='';
+        var pages=Math.max(1, Math.ceil(parsed.length/perPage));
+        if(page>=pages) page=pages-1;
+        var start=page*perPage, end=Math.min(start+perPage, parsed.length);
+        for(var i=start;i<end;i++){
+            var a=parsed[i], m=a.metadata||{}, img=ipfs(m.image);
+            var tr=document.createElement('tr');
+            tr.innerHTML='<td>'+(i+1)+'</td><td>'+(img?'<img src="'+esc(img)+'" style="width:40px;height:40px;object-fit:cover;border-radius:4px;" loading="lazy">':'')+'</td><td><code>'+esc(a.assetName)+'</code></td><td>'+esc(m.name||'')+'</td>';
+            body.appendChild(tr);
+        }
+        var pager=document.getElementById('cem-import-pager');
+        pager.innerHTML='Page '+(page+1)+' / '+pages+' &nbsp; '+
+            '<button type="button" class="button" id="cem-prev" '+(page<=0?'disabled':'')+'>&lsaquo; Prev</button> '+
+            '<button type="button" class="button" id="cem-next" '+(page>=pages-1?'disabled':'')+'>Next &rsaquo;</button>';
+        var pv=document.getElementById('cem-prev'), nx=document.getElementById('cem-next');
+        if(pv) pv.onclick=function(){ if(page>0){page--;renderPage();} };
+        if(nx) nx.onclick=function(){ if(page<pages-1){page++;renderPage();} };
+    }
+
+    function doParse(){
+        var raw=document.getElementById('cem-import-json').value.trim();
+        var summary=document.getElementById('cem-import-summary');
+        var errBox=document.getElementById('cem-import-errors');
+        var go=document.getElementById('cem-import-go');
+        errBox.style.display='none'; errBox.innerHTML=''; parsed=[]; go.disabled=true;
+        document.getElementById('cem-import-preview-wrap').style.display='none';
+        if(!raw){ summary.textContent='Nothing to parse.'; return; }
+        var data; try{ data=JSON.parse(raw); }catch(e){ summary.textContent='❌ Invalid JSON: '+e.message; return; }
+        if(!Array.isArray(data)){ summary.textContent='❌ Expected a JSON array of {assetName, metadata}.'; return; }
+        var errs=[], seen={}, ok=[];
+        data.forEach(function(a,i){
+            var lbl='#'+(i+1);
+            if(!a || typeof a!=='object' || !a.assetName || !a.metadata || typeof a.metadata!=='object'){ errs.push(lbl+': missing assetName or metadata object.'); return; }
+            var n=String(a.assetName);
+            var b=byteLen(n);
+            if(b<1 || b>32){ errs.push(lbl+' ('+n+'): token name must be 1–32 bytes (is '+b+').'); return; }
+            if(!/^[\x20-\x7E]+$/.test(n)){ errs.push(lbl+' ('+n+'): token name must be printable ASCII.'); return; }
+            if(seen[n]){ errs.push(lbl+' ('+n+'): duplicate token name in this list.'); return; }
+            seen[n]=1; ok.push({assetName:n, metadata:a.metadata});
+        });
+        parsed=ok;
+        summary.textContent='✓ '+ok.length+' valid asset'+(ok.length===1?'':'s')+(errs.length?(' · '+errs.length+' skipped'):'');
+        if(errs.length){ errBox.style.display='block'; errBox.innerHTML='<strong>'+errs.length+' issue(s):</strong><br>'+errs.slice(0,200).map(esc).join('<br>'); }
+        if(ok.length){ page=0; document.getElementById('cem-import-preview-wrap').style.display='block'; renderPage(); go.disabled=false; go.textContent='Import '+ok.length+' asset'+(ok.length===1?'':'s'); }
+    }
+
+    function doImport(){
+        if(!parsed.length) return;
+        var policyid=(document.getElementById('cardanonftpolicyid')||{}).value||'';
+        if(!/^[a-f0-9]{56}$/i.test(policyid)){ alert('Set or generate a valid Policy ID first (Policy ID field above).'); return; }
+        var policyMode=(document.querySelector('input[name=policy_mode]:checked')||{}).value||'new';
+        var existingId=(document.getElementById('existing_collection_id')||{}).value||'';
+        var fields={
+            policy_mode: policyMode,
+            policyid: policyid,
+            policy_json: (document.getElementById('cardanonftpolicyjson')||{}).value||'',
+            expirationdate: (document.getElementById('cardanonftexpirationdate')||{}).value||'',
+            unlimited: (document.getElementById('cardanonftunlimitedmint')||{}).checked?1:'',
+            price: (document.getElementById('cardanonftprice')||{}).value||'0',
+            royalty: (document.getElementById('cardanonftroyaltyamount')||{}).value||'',
+            royaltyaddress: (document.getElementById('cardanonftroyaltyaddress')||{}).value||'',
+            mintsallowedperwallet: (document.getElementById('cardanonftmintsallowedperwallet')||{}).value||'0',
+            title: (document.getElementById('cardanonfttitle')||{}).value||''
+        };
+        // Existing numeric collection -> append; new or imported-policy -> 0 (server seeds it).
+        var collectionId = (policyMode==='existing' && existingId && existingId.indexOf('imported_')!==0) ? parseInt(existingId,10) : 0;
+        var go=document.getElementById('cem-import-go'), prog=document.getElementById('cem-import-progress');
+        go.disabled=true;
+        var batchSize=50, idx=0, totalInserted=0, allErrors=[];
+        function nextBatch(){
+            if(idx>=parsed.length){
+                prog.innerHTML='<span style="color:#46812b; font-weight:600;">✓ Imported '+totalInserted+' asset(s).'+(allErrors.length?(' '+allErrors.length+' skipped.'):'')+' Redirecting…</span>';
+                setTimeout(function(){ window.location='<?php echo esc_url(admin_url('admin.php?page=cardano-mint-page-2')); ?>'; }, 1600);
+                return;
+            }
+            var batch=parsed.slice(idx, idx+batchSize);
+            prog.innerHTML='Importing '+(idx+1)+'–'+Math.min(idx+batchSize,parsed.length)+' of '+parsed.length+'…';
+            var fd=new FormData();
+            fd.append('action','cardano_mint_import_assets'); fd.append('nonce',nonce);
+            Object.keys(fields).forEach(function(k){ fd.append(k, fields[k]); });
+            fd.append('collection_id', collectionId);
+            fd.append('assets', JSON.stringify(batch));
+            fetch(ajaxurl,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(res){
+                if(!res || !res.success){ go.disabled=false; prog.innerHTML='<span style="color:#d63638;">Error: '+((res&&res.data&&res.data.message)||'import failed')+'</span>'; return; }
+                totalInserted += res.data.inserted||0;
+                if(res.data.errors && res.data.errors.length) allErrors=allErrors.concat(res.data.errors);
+                if(collectionId===0 && res.data.collection_id) collectionId=res.data.collection_id;
+                idx+=batchSize; nextBatch();
+            }).catch(function(e){ go.disabled=false; prog.innerHTML='<span style="color:#d63638;">Network error: '+e.message+'</span>'; });
+        }
+        nextBatch();
+    }
+
+    document.addEventListener('DOMContentLoaded', function(){
+        var f=document.getElementById('cem-import-file');
+        if(f) f.addEventListener('change', function(){
+            var file=f.files[0]; if(!file) return;
+            document.getElementById('cem-import-file-name').textContent=file.name;
+            var rd=new FileReader(); rd.onload=function(){ document.getElementById('cem-import-json').value=rd.result; }; rd.readAsText(file);
+        });
+        var p=document.getElementById('cem-import-parse'); if(p) p.addEventListener('click', doParse);
+        var g=document.getElementById('cem-import-go'); if(g) g.addEventListener('click', doImport);
+    });
+})();
+</script>
+<?php endif; ?>
 
 <script>
 // Toggle unlimited minting
