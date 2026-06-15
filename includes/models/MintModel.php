@@ -375,6 +375,30 @@ class MintModel {
         // Just-in-time column safety net (see note in insert_active_mint).
         self::add_preview_image_columns();
 
+        // Imported (verbatim) assets: the per-asset metadata, on-chain name and
+        // image are fixed at import — never overwrite them from the edit form
+        // (the form builder would flatten the nested JSON). An edit on ANY
+        // imported asset just sets the collection-wide pricing fields and
+        // cascades them to every asset under the same policy, so the whole
+        // collection shares one price (and can be re-priced from any of them).
+        $currentAsset = self::getMintById($id);
+        if ($currentAsset && (($currentAsset['metadata_mode'] ?? '') === 'verbatim')) {
+            $result = $wpdb->query($wpdb->prepare(
+                "UPDATE $table SET title=%s, price=%f, royalty=%s, royaltyaddress=%s, mintsallowedperwallet=%d
+                 WHERE policyid=%s AND metadata_mode='verbatim'",
+                (string) ($mint['title'] ?? $currentAsset['title']),
+                isset($mint['price']) ? floatval($mint['price']) : 0.00,
+                (string) ($mint['royalty'] ?? ''),
+                (string) ($mint['royaltyaddress'] ?? ''),
+                isset($mint['mintsallowedperwallet']) ? intval($mint['mintsallowedperwallet']) : 0,
+                (string) $currentAsset['policyid']
+            ));
+            if ($result === false) {
+                error_log('[CardanoMint] verbatim price cascade FAILED. id=' . $id . ' last_error=' . $wpdb->last_error);
+            }
+            return $result;
+        }
+
         $updateData = [
             'title' => $mint['title'],
             'asset_name' => isset($mint['asset_name']) ? $mint['asset_name'] : null,

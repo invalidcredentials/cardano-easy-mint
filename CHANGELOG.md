@@ -2,6 +2,16 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.4.2] - 2026-06-15
+
+More fixes for the bulk-import (verbatim) collections.
+
+### Fixed
+- **Couldn't price an imported collection.** Pricing was locked to "variant A," but imports under an existing/imported policy have no variant A (all numeric variants), so price could never be set. Now editing **any** imported (verbatim) asset edits the **collection-wide** price / royalty / mints-per-wallet and cascades it to every asset under that policy (`update_active_mint` verbatim branch) — re-price from any asset, any time.
+- **Edit form could corrupt imported metadata.** The metadata builder flattens nested JSON on save; for verbatim assets the editor now leaves the stored metadata, on-chain token name and image **untouched** — `update_active_mint` only writes the pricing fields. The edit screen hides the fixed per-asset fields (image, name, quantity, metadata builder), unlocks the pricing fields regardless of variant, and shows an "imported asset" notice.
+- **Metadata viewer showed `[object Object]`.** The Active Mints metadata modal rendered nested values with `String(value)`, so `files` / `attributes` became `[object Object]` and `description` became a comma string. Nested objects/arrays now render as pretty JSON.
+- **Imported NFT image now displays.** Imported assets have no WordPress attachment — their image is an `ipfs://` URI in the metadata. The Active Mints thumbnail now falls back to that (gateway-resolved; supports the CIP-25 chunked-array image form), with a gold border to denote imported.
+
 ## [4.4.1] - 2026-06-15
 
 Fixes for using imported (skey+script) policies with the bulk JSON import, surfaced right after 4.4.0.

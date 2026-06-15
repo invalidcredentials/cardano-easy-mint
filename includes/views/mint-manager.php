@@ -694,6 +694,32 @@ if ($editMode && $editData) {
 </script>
 <?php endif; ?>
 
+<?php if ($editMode && $editData && (($editData['metadata_mode'] ?? '') === 'verbatim')): ?>
+<script>
+// Editing an imported (verbatim) asset: metadata, on-chain name and image are
+// fixed. Only the collection-wide pricing fields are editable, and saving any
+// one asset re-prices the whole policy (see update_active_mint).
+document.addEventListener('DOMContentLoaded', function(){
+    ['cardanonftprice','cardanonftroyaltyamount','cardanonftroyaltyaddress','cardanonftmintsallowedperwallet','cardanonfttitle'].forEach(function(id){
+        var el=document.getElementById(id); if(!el) return;
+        el.readOnly=false; el.removeAttribute('readonly'); el.style.background=''; el.style.cursor='';
+    });
+    ['upload-image-btn','upload-preview-image-btn','cardanonftassetname','cardanonftquantity','metadata-builder'].forEach(function(id){
+        var el=document.getElementById(id); if(!el) return;
+        if(el.removeAttribute) el.removeAttribute('required'); // hidden required fields can block submit
+        var tr=el.closest('tr'); if(tr) tr.style.display='none';
+    });
+    var ci=document.getElementById('collection-image-row'); if(ci) ci.style.display='none';
+    var form=document.querySelector('form');
+    if(form && form.parentNode){
+        var n=document.createElement('div'); n.className='notice notice-info'; n.style.margin='10px 0';
+        n.innerHTML='<p><strong>Imported asset.</strong> The on-chain metadata, token name and image are fixed. Saving here updates the <strong>price, royalty and mints-per-wallet for the entire collection</strong> (every asset under this policy).</p>';
+        form.parentNode.insertBefore(n, form);
+    }
+});
+</script>
+<?php endif; ?>
+
 <script>
 // Toggle unlimited minting
 function toggleUnlimitedMinting(isUnlimited) {
