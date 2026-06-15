@@ -2,6 +2,11 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.4.3] - 2026-06-15
+
+### Changed
+- **Removed the 1-of-1-only guard on the upgrade burn.** The burn step previously refused any asset whose on-chain quantity wasn't exactly 1 (`multi_quantity` error). It now builds the burn (−1) regardless, so an accidental multi-mint can be cleaned up: sign the burn to take e.g. 2 → 1 and simply don't sign the re-mint. Burn quantity stays −1 per signature.
+
 ## [4.4.2] - 2026-06-15
 
 More fixes for the bulk-import (verbatim) collections.
