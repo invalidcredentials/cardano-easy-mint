@@ -2,7 +2,7 @@
 /*
 Plugin Name: Cardano Minting
 Description: NFT minting for Cardano sites via the Anvil API. Alt-chain payments (BTC / ETH / SOL / ADA), batch quantity (1-5 per tx), wallet-network gate, optional 2FA gate on the Payment Wallets admin page, and dashboard send-funds via Anvil + Blockfrost balance lookups for ADA custodial wallets.
-Version: 4.4.0
+Version: 4.4.1
 Author: Pb
 Text Domain: cardano-minting
 */
@@ -857,33 +857,46 @@ function cardanomint_mint_manager_page() {
     include plugin_dir_path(__FILE__) . 'includes/views/mint-manager.php';
 }
 
+/**
+ * Split active mints into [manageable, orphaned]. A mint is manageable if its
+ * policy_json keyhash matches the active policy wallet OR its policy has an
+ * imported signing key on file (skey-backed policies don't need a generated
+ * wallet — the saved skey signs at submit time).
+ */
+function cardanomint_partition_mints($all_mints, $active_wallet, $skey_policy_ids) {
+    $mints = [];
+    $orphaned = [];
+    $active_keyhash = $active_wallet ? ($active_wallet['payment_keyhash'] ?? '') : '';
+    foreach ((array) $all_mints as $mint) {
+        $kh = CardanoMintPay\Models\MintModel::extractKeyhashFromPolicyJson($mint['policy_json'] ?? '');
+        $matches_wallet = $active_keyhash && $kh === $active_keyhash;
+        $has_skey = in_array(strtolower((string) ($mint['policyid'] ?? '')), $skey_policy_ids, true);
+        if ($matches_wallet || $has_skey) {
+            $mints[] = $mint;
+        } else {
+            $orphaned[] = $mint;
+        }
+    }
+    return [$mints, $orphaned];
+}
+
 function cardanomint_active_mints_page() {
     // Get current network and active wallet
     $network = get_option('cardano-mint-networkenvironment', 'preprod');
     $active_wallet = CardanoMintPay\Models\MintModel::getActivePolicyWallet($network);
 
-    // Filter mints by active wallet's keyhash (the "cartridge save file" logic)
-    $orphaned_mints = [];
-    if ($active_wallet) {
-        $all_mints = CardanoMintPay\Models\MintModel::get_active_mints();
-        $mints = [];
+    // Policies whose signing key was imported (skey+script / manual). These are
+    // mintable without a generated policy wallet — the saved skey overrides it
+    // at submit time — so they must NOT be treated as orphaned here.
+    $skey_policy_ids = CardanoMintPay\Models\MintModel::getImportedSkeyPolicyIds();
 
-        // Filter mints that match the active wallet's keyhash
-        foreach ($all_mints as $mint) {
-            $mint_keyhash = CardanoMintPay\Models\MintModel::extractKeyhashFromPolicyJson($mint['policy_json']);
-
-            if ($mint_keyhash === $active_wallet['payment_keyhash']) {
-                $mints[] = $mint;
-            } else {
-                // This is an orphaned policy from a different/deleted wallet
-                $orphaned_mints[] = $mint;
-            }
-        }
-    } else {
-        // No active wallet - everything is orphaned
-        $mints = [];
-        $orphaned_mints = CardanoMintPay\Models\MintModel::get_active_mints();
-    }
+    // Filter mints by active wallet's keyhash (the "cartridge save file" logic),
+    // PLUS any policy backed by an imported skey.
+    list($mints, $orphaned_mints) = cardanomint_partition_mints(
+        CardanoMintPay\Models\MintModel::get_active_mints(),
+        $active_wallet,
+        $skey_policy_ids
+    );
 
     // Count only policies from active wallet (not orphaned)
     $slots_used = CardanoMintPay\Models\MintModel::countActivePoliciesFromActiveWallets($network);
@@ -910,23 +923,12 @@ function cardanomint_active_mints_page() {
         exit;
     }
     
-    // Reload mints after any changes (need to re-filter by wallet)
-    $orphaned_mints = [];
-    if ($active_wallet) {
-        $all_mints = CardanoMintPay\Models\MintModel::get_active_mints();
-        $mints = [];
-        foreach ($all_mints as $mint) {
-            $mint_keyhash = CardanoMintPay\Models\MintModel::extractKeyhashFromPolicyJson($mint['policy_json']);
-            if ($mint_keyhash === $active_wallet['payment_keyhash']) {
-                $mints[] = $mint;
-            } else {
-                $orphaned_mints[] = $mint;
-            }
-        }
-    } else {
-        $mints = [];
-        $orphaned_mints = CardanoMintPay\Models\MintModel::get_active_mints();
-    }
+    // Reload mints after any changes (need to re-filter by wallet + skey).
+    list($mints, $orphaned_mints) = cardanomint_partition_mints(
+        CardanoMintPay\Models\MintModel::get_active_mints(),
+        $active_wallet,
+        $skey_policy_ids
+    );
 
     // Recalculate slots after deletion
     $slots_used = CardanoMintPay\Models\MintModel::countActivePoliciesFromActiveWallets($network);

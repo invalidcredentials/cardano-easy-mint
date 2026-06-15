@@ -1545,6 +1545,26 @@ class MintModel {
         dbDelta($sql);
     }
 
+    /**
+     * Policy IDs that have an imported signing key on file (the skey+script /
+     * manual import path). Mints under these policies are signable without a
+     * generated policy wallet — the imported skey overrides it at submit time
+     * (see AnvilAPI::submitTransaction). Used by the Active Mints view so
+     * skey-backed collections aren't treated as orphaned.
+     *
+     * @return string[] lower-cased policy_id list (may be empty).
+     */
+    public static function getImportedSkeyPolicyIds() {
+        global $wpdb;
+        $table = self::get_mint_policies_table();
+        // Table may not exist yet on a fresh install.
+        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table)) !== $table) {
+            return array();
+        }
+        $ids = $wpdb->get_col("SELECT policy_id FROM $table WHERE skey_encrypted IS NOT NULL AND skey_encrypted != ''");
+        return array_map('strtolower', is_array($ids) ? $ids : array());
+    }
+
     public static function insertMintPolicy($data) {
         global $wpdb;
         $table = self::get_mint_policies_table();
