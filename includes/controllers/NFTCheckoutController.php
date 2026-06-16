@@ -100,6 +100,9 @@ class NFTCheckoutController {
             'royalty'               => sanitize_text_field($_POST['royalty'] ?? ''),
             'royaltyaddress'        => sanitize_text_field($_POST['royaltyaddress'] ?? ''),
             'mintsallowedperwallet' => isset($_POST['mintsallowedperwallet']) ? intval($_POST['mintsallowedperwallet']) : 0,
+            // Optional collection (mystery-box) image shared by every imported asset —
+            // shown in the minter instead of each asset's own image when set.
+            'collection_image_id'   => (isset($_POST['collection_image_id']) && $_POST['collection_image_id'] !== '') ? intval($_POST['collection_image_id']) : null,
         ];
 
         $inserted = 0;

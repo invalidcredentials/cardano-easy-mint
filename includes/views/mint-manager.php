@@ -577,7 +577,10 @@ if ($editMode && $editData) {
             var el = document.getElementById(id); if(!el) return;
             var tr = el.closest('tr'); if(tr) tr.style.display = importMode ? 'none' : '';
         });
-        var ci = document.getElementById('collection-image-row'); if(ci && importMode) ci.style.display = 'none';
+        // Resurface the collection (mystery-box) image picker during bulk import so
+        // imported assets can show a cover instead of each asset's own image.
+        var ci = document.getElementById('collection-image-row');
+        if(ci){ if(importMode){ ci.style.display=''; } else if(window.toggleCollectionImageField){ window.toggleCollectionImageField(); } else { ci.style.display='none'; } }
         var sub = document.getElementById('cem-build-submit'); if(sub) sub.style.display = importMode ? 'none' : '';
         var panel = document.getElementById('cem-import-panel'); if(panel) panel.style.display = importMode ? 'block' : 'none';
     };
@@ -649,7 +652,8 @@ if ($editMode && $editData) {
             royalty: (document.getElementById('cardanonftroyaltyamount')||{}).value||'',
             royaltyaddress: (document.getElementById('cardanonftroyaltyaddress')||{}).value||'',
             mintsallowedperwallet: (document.getElementById('cardanonftmintsallowedperwallet')||{}).value||'0',
-            title: (document.getElementById('cardanonfttitle')||{}).value||''
+            title: (document.getElementById('cardanonfttitle')||{}).value||'',
+            collection_image_id: (document.getElementById('cardanonftcollectionimageid')||{}).value||''
         };
         // Existing numeric collection -> append; new or imported-policy -> 0 (server seeds it).
         var collectionId = (policyMode==='existing' && existingId && existingId.indexOf('imported_')!==0) ? parseInt(existingId,10) : 0;
@@ -1203,6 +1207,8 @@ jQuery(document).ready(function($) {
             $('#collection-image-row').hide();
         }
     }
+    // Expose so the bulk-import path (separate IIFE) can restore correct visibility on mode switch.
+    window.toggleCollectionImageField = toggleCollectionImageField;
 
     // Initial toggle on page load
     toggleCollectionImageField();
