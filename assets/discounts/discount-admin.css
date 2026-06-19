@@ -1,0 +1,38 @@
+/* Cardano Easy Mint — Discounts admin */
+.cmd-intro { max-width: 60ch; color: #555; }
+.cmd-cols { display: grid; grid-template-columns: 380px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 1100px) { .cmd-cols { grid-template-columns: 1fr; } }
+
+.cmd-card { background: #fff; border: 1px solid #c3c4c7; border-radius: 6px; padding: 16px 18px; }
+.cmd-card h2 { margin-top: 0; }
+
+.cmd-field { display: block; margin: 0 0 14px; }
+/* The [hidden] attribute must beat the display rules above so the conditional
+   value / code-mode fields actually stay hidden until their type is selected. */
+.cmd-wrap [hidden] { display: none !important; }
+.cmd-field > span { display: block; font-weight: 600; margin-bottom: 4px; }
+.cmd-field > span small { font-weight: 400; color: #777; }
+.cmd-field input[type="text"], .cmd-field input[type="number"], .cmd-field input[type="datetime-local"], .cmd-field select { width: 100%; max-width: 100%; box-sizing: border-box; }
+fieldset.cmd-field { border: 0; padding: 0; margin: 0 0 14px; }
+.cmd-radio { display: inline-block; margin-right: 14px; font-weight: 400; }
+
+.cmd-status { margin-top: 10px; min-height: 1.2em; font-size: 13px; }
+.cmd-status.is-error { color: #b32d2e; }
+.cmd-status.is-success { color: #1a7f37; }
+
+.cmd-generated { margin-top: 18px; border-top: 1px solid #e0e0e0; padding-top: 14px; }
+.cmd-generated textarea { width: 100%; box-sizing: border-box; font-family: Menlo, Consolas, monospace; }
+.cmd-generated-actions { margin-top: 8px; display: flex; gap: 8px; }
+
+.cmd-actions .button-link { color: #2271b1; }
+.cmd-pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; background: #eee; color: #444; }
+.cmd-pill.cmd-active { background: #d6f5dd; color: #1a7f37; }
+.cmd-pill.cmd-paused { background: #fff3cd; color: #8a6d00; }
+.cmd-pill.cmd-expired { background: #f1d4d4; color: #8a1f1f; }
+
+.cmd-detail { margin-top: 18px; border-top: 1px solid #e0e0e0; padding-top: 14px; }
+.cmd-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 1400px) { .cmd-detail-grid { grid-template-columns: 1fr; } }
+.cmd-detail code { font-size: 12px; }
+.cmd-pager { display: flex; align-items: center; gap: 12px; margin-top: 10px; font-size: 13px; }
+.cmd-pager span { color: #555; }

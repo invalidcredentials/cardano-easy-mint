@@ -250,6 +250,40 @@ $nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
                     </script>
                     <?php endif; ?>
 
+                    <!-- Discount code (payment-select step). Applies to whichever
+                         method the customer picks: ADA at sign time, or baked into
+                         the BTC/ETH/SOL amount at quote time. Revealed once a
+                         Cardano wallet is connected. -->
+                    <div class="discount-entry" id="discount-entry" hidden>
+                        <label class="discount-entry-label" for="discount-code-input">Have a code?</label>
+                        <div class="discount-entry-row">
+                            <input type="text" id="discount-code-input" placeholder="Enter discount code" autocomplete="off" spellcheck="false">
+                            <button type="button" id="discount-apply-btn" class="discount-apply-btn">Apply</button>
+                        </div>
+                        <div class="discount-entry-status" id="discount-status"></div>
+                        <input type="hidden" id="discount-code-applied" value="">
+                        <input type="hidden" id="discount-redemption-id" value="">
+                    </div>
+                    <script>
+                    /* Reveal the discount box once a Cardano wallet is connected
+                       (mirrors the on-ramp CTA reveal). */
+                    (function () {
+                        var wrap = document.getElementById('discount-entry');
+                        var addrEl = document.getElementById('connected-wallet-address');
+                        if (!wrap || !addrEl) return;
+                        function reveal() {
+                            var a = (addrEl.textContent || '').trim();
+                            if (a.indexOf('addr1') === 0 || a.indexOf('addr_test1') === 0) wrap.removeAttribute('hidden');
+                            else wrap.setAttribute('hidden', '');
+                        }
+                        var disp = document.getElementById('wallet-address-display');
+                        var obs = new MutationObserver(reveal);
+                        if (disp) obs.observe(disp, { attributes: true, attributeFilter: ['style'] });
+                        obs.observe(addrEl, { childList: true, characterData: true, subtree: true });
+                        setTimeout(reveal, 50);
+                    })();
+                    </script>
+
                     <button type="button" class="btn-next" id="proceed-to-confirm" style="display: none;">Continue to Mint</button>
                 </div>
 
@@ -341,6 +375,15 @@ $nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
                                             ~$<?php echo esc_html(number_format($network_usd, 2)); ?> USD
                                         </div>
                                         <div class="price-ada" id="review-network-ada">~<?php echo esc_html(number_format($network_ada, 2)); ?> ADA</div>
+                                    </div>
+                                </div>
+
+                                <!-- Discount (shown when a valid code is applied) -->
+                                <div class="receipt-line-item receipt-discount-line" id="review-discount-row" style="display:none;">
+                                    <span class="line-item-label" id="review-discount-label">Discount</span>
+                                    <div class="line-item-value">
+                                        <div class="price-usd" id="review-discount-usd">-$0.00 USD</div>
+                                        <div class="price-ada" id="review-discount-ada">-0.00 ADA</div>
                                     </div>
                                 </div>
 

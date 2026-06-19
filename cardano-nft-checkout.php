@@ -2,7 +2,7 @@
 /*
 Plugin Name: Cardano Minting
 Description: NFT minting for Cardano sites via the Anvil API. Alt-chain payments (BTC / ETH / SOL / ADA), batch quantity (1-5 per tx), wallet-network gate, optional 2FA gate on the Payment Wallets admin page, and dashboard send-funds via Anvil + Blockfrost balance lookups for ADA custodial wallets.
-Version: 4.4.3
+Version: 4.5.1
 Author: Pb
 Text Domain: cardano-minting
 */
@@ -78,6 +78,15 @@ require_once plugin_dir_path(__FILE__) . 'includes/controllers/AssetUpgradePubli
 \CardanoMintPay\Controllers\AssetUpgradeAdminController::register();
 \CardanoMintPay\Controllers\AssetUpgradePublicController::register();
 
+// Discount codes (e-commerce coupons). Admin creates campaigns of codes per
+// policy; a code reduces the MSRP component of the price server-side (fees +
+// receipt untouched) at build time. See docs/DISCOUNT_CODES_BUILD_PLAN.md.
+require_once plugin_dir_path(__FILE__) . 'includes/discounts/DiscountInstaller.php';
+require_once plugin_dir_path(__FILE__) . 'includes/models/DiscountModel.php';
+require_once plugin_dir_path(__FILE__) . 'includes/discounts/DiscountService.php';
+require_once plugin_dir_path(__FILE__) . 'includes/controllers/DiscountPublicController.php';
+require_once plugin_dir_path(__FILE__) . 'includes/controllers/DiscountAdminController.php';
+
 // Asset Upgrade confirmation watcher. 5-min cron flips 'submitted' audit
 // rows to 'confirmed' once the burn-and-re-mint tx lands on-chain.
 add_action('cardano_asset_upgrade_confirm_tick', ['\\CardanoMintPay\\AssetUpgrade\\AssetUpgradeService', 'confirmation_tick']);
@@ -90,6 +99,8 @@ register_activation_hook(__FILE__, function () {
 register_deactivation_hook(__FILE__, function () {
     $next = wp_next_scheduled('cardano_asset_upgrade_confirm_tick');
     if ($next) wp_unschedule_event($next, 'cardano_asset_upgrade_confirm_tick');
+    $sweep = wp_next_scheduled('cardano_discount_sweep_tick');
+    if ($sweep) wp_unschedule_event($sweep, 'cardano_discount_sweep_tick');
 });
 
 // Custom cron interval. WP only ships hourly/daily/twicedaily by default.
@@ -180,6 +191,9 @@ function cardanomint_activate() {
 
     // Asset Upgrade schema (burn & re-mint specs + audit log).
     CardanoMintPay\AssetUpgrade\AssetUpgradeInstaller::install();
+
+    // Discount codes schema (campaigns + codes + redemptions).
+    CardanoMintPay\Discounts\DiscountInstaller::install();
 
     // Fix binary permissions on Linux
     cardanomint_fix_binary_permissions();
@@ -366,6 +380,28 @@ add_action('init', function() {
     }
     if (class_exists('CardanoMintPay\\Controllers\\OnrampAdminController')) {
         CardanoMintPay\Controllers\OnrampAdminController::register();
+    }
+
+    // Discounts: just-in-time install + register the public (validate) and
+    // admin (campaigns/codes) controllers.
+    if (class_exists('CardanoMintPay\\Discounts\\DiscountInstaller')) {
+        CardanoMintPay\Discounts\DiscountInstaller::maybe_install();
+    }
+    if (class_exists('CardanoMintPay\\Controllers\\DiscountPublicController')) {
+        CardanoMintPay\Controllers\DiscountPublicController::register();
+    }
+    if (class_exists('CardanoMintPay\\Controllers\\DiscountAdminController')) {
+        CardanoMintPay\Controllers\DiscountAdminController::register();
+    }
+});
+
+// Discount reservation sweeper: release holds left by abandoned checkouts so a
+// single-use code isn't stuck. Reuses the 'fiveminutes' interval defined for the
+// asset-upgrade tick.
+add_action('cardano_discount_sweep_tick', ['\\CardanoMintPay\\Discounts\\DiscountService', 'sweep']);
+add_action('init', function () {
+    if (!wp_next_scheduled('cardano_discount_sweep_tick')) {
+        wp_schedule_event(time() + 120, 'fiveminutes', 'cardano_discount_sweep_tick');
     }
 });
 
