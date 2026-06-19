@@ -344,6 +344,15 @@ $nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
                                     </div>
                                 </div>
 
+                                <!-- Discount (shown when a valid code is applied) -->
+                                <div class="receipt-line-item receipt-discount-line" id="review-discount-row" style="display:none;">
+                                    <span class="line-item-label" id="review-discount-label">Discount</span>
+                                    <div class="line-item-value">
+                                        <div class="price-usd" id="review-discount-usd">-$0.00 USD</div>
+                                        <div class="price-ada" id="review-discount-ada">-0.00 ADA</div>
+                                    </div>
+                                </div>
+
                                 <div class="receipt-divider-bold"></div>
 
                                 <!-- Total -->
@@ -357,6 +366,18 @@ $nft_is_video = $nft_image_mime && strpos($nft_image_mime, 'video/') === 0;
                                         </div>
                                         <div class="total-ada" id="review-total-ada"><?php echo esc_html(number_format($total_ada, 2)); ?> ADA</div>
                                     </div>
+                                </div>
+
+                                <!-- Discount code entry (ADA checkout; hidden under alt-pay in v1) -->
+                                <div class="discount-entry" id="discount-entry">
+                                    <label class="discount-entry-label" for="discount-code-input">Have a code?</label>
+                                    <div class="discount-entry-row">
+                                        <input type="text" id="discount-code-input" placeholder="Enter discount code" autocomplete="off" spellcheck="false">
+                                        <button type="button" id="discount-apply-btn" class="discount-apply-btn">Apply</button>
+                                    </div>
+                                    <div class="discount-entry-status" id="discount-status"></div>
+                                    <input type="hidden" id="discount-code-applied" value="">
+                                    <input type="hidden" id="discount-redemption-id" value="">
                                 </div>
 
                                 <!-- UTxO Note -->
