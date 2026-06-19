@@ -1,13 +1,15 @@
 # Cardano Easy Mint
 
-A WordPress plugin for minting NFTs on the Cardano blockchain via the [Ada Anvil](https://ada-anvil.io/) API. Self-contained with native CIP-30 wallet connection, pure-PHP cryptography (Ed25519 + secp256k1 + Keccak-256), an embeddable widget for external sites, and a complete alt-chain payment system that lets customers pay for Cardano NFTs with BTC, ETH, or SOL.
+A WordPress plugin for minting NFTs on the Cardano blockchain via the [Ada Anvil](https://ada-anvil.io/) API. Self-contained with native CIP-30 wallet connection, pure-PHP cryptography (Ed25519 + secp256k1 + Keccak-256), and an embeddable widget for external sites. Customers can pay in ADA, pay with BTC / ETH / SOL (alt-chain payments), or buy ADA with a credit card (fiat on-ramp). Beyond minting, it can refresh an existing NFT's metadata in place via a coordinated burn → re-mint (Asset Upgrade).
 
 **A Pb Project** | Open Source
 
 ## Highlights
 
-- **NFT Minting Engine** — collections with variants, rarity weights, CIP-25 metadata, CIP-27 royalties
+- **NFT Minting Engine** — collections with variants, rarity weights, CIP-25 metadata, CIP-27 royalties. Per-asset form builder *or* bulk JSON import (verbatim, mint-ready collections).
 - **Alt-chain Payments** — accept BTC, ETH, or SOL for a Cardano NFT mint. Per-mint deterministic deposit address, server-side watcher, automatic price-locked invoices.
+- **Fiat On-Ramp** — customers buy ADA with a credit card (via Guardarian); the ADA lands directly in their own connected wallet, then the normal mint flow takes over. No operator wallet, no chargeback exposure.
+- **Asset Upgrade** — refresh an existing NFT's CIP-25 metadata in place via a coordinated burn → re-mint (same `policyId` + `assetName`, new metadata). Per-asset or policy-wide patch, time-lock aware, append-only audit log.
 - **Batch Mints** — customers mint 1 to 5 NFTs in a single Cardano transaction with one wallet signature.
 - **Wallet Network Gate** — refuses to connect, quote, or build a mint when the customer's Cardano wallet network does not match the site's configured network.
 - **Native CIP-30** — embedded wallet detection (Eternl, Lace, Vespr, Yoroi, Typhon, Gero) with no external wallet-connect dependency.
@@ -42,7 +44,8 @@ A WordPress plugin for minting NFTs on the Cardano blockchain via the [Ada Anvil
 | **Mint Manager** | Create / edit NFT collections, variants, metadata, royalties, pricing. Two paths: **Build NFT** (per-asset form) or **Import JSON (bulk)** — paste/upload a JSON array of `{assetName, metadata}` to load a whole collection as quantity-1, verbatim-minted assets. |
 | **Active Mints** | View mints by policy, archive, CSV export/import, mint history |
 | **Policy Wallet** | Generate or import Cardano signing wallets, advanced key import (seed / skey / manual). Skey + Script / Manual import accept either a bare native script or the full exported policy wrapper (`{policyId, script, schema, …}`), and validate the key against any signer in a multisig policy. |
-| **Alt-Chain Payments** | BTC / ETH / SOL parent-wallet management, per-chain settings, RPC config, refund / sweep tooling, cross-chain invoice review |
+| **Payment Wallets** (Alt-Chain Payments) | BTC / ETH / SOL parent-wallet management, per-chain settings, RPC config, refund / sweep tooling, cross-chain invoice review. Hosts the **On-Ramp** tab (Guardarian fiat config + recent session review). 2FA (TOTP) gated. |
+| **Asset Upgrades** | Register policies eligible for CIP-25 metadata refresh, define policy-wide patches or per-asset metadata bundles, preview the resolved diff, pause/activate specs, review the burn→re-mint audit log. Shares the Payment Wallets 2FA gate. |
 | **Widget Deployer** | Generate API keys, restrict by origin, embed-snippet generator |
 | **How to Use** | Shortcode + widget docs |
 
@@ -52,6 +55,14 @@ A WordPress plugin for minting NFTs on the Cardano blockchain via the [Ada Anvil
 [cardano-mint mint-id="20"]              Random variant by rarity weight
 [cardano-mint mint-id="20-A"]            Specific variant
 [cardano-mint mint-id="25" class="custom-button"]
+```
+
+For the metadata-refresh flow, drop the upgrade shortcode on any page:
+
+```
+[cardano-upgrade]                                    All eligible policies
+[cardano-upgrade policy-id="<56 hex>"]               Restrict to one policy
+[cardano-upgrade policy-id="<56 hex>" label="Refresh my art"]
 ```
 
 The rendered modal walks customers through:
@@ -96,6 +107,40 @@ includes/altpay/
   Slip10Ed25519.php   # SLIP-0010 ed25519 derivation (libsodium-backed)
 ```
 
+## Fiat On-Ramp (Guardarian)
+
+A sibling to Alt-Chain Payments, but pointed the other way: instead of accepting a foreign coin and sweeping it to the operator, the customer buys **ADA with a credit card** and the ADA is delivered straight to their **own** connected Cardano wallet. The operator never custodies the funds and carries no chargeback exposure — once the ADA arrives, the customer mints with the normal ADA flow.
+
+Flow: customer enters a USD amount → `POST /onramp/quote` returns an indicative ADA estimate → `POST /onramp/sessions` creates a Guardarian transaction and returns the hosted-checkout `redirect_url` → customer pays on Guardarian → the modal polls `GET /onramp/wallet-balance` (Blockfrost) until the ADA lands. A session row tracks status for support/dashboard; it is **audit-only** and never auto-triggers a mint (the customer still signs).
+
+| Layer | What it does |
+|-------|--------------|
+| `GuardarianClient` | Thin HTTP client for Guardarian (`/estimate`, `/market-info/min-max-range`, `POST /transaction`, `GET /transaction/{id}`). Keys encrypted at rest; error envelope flattened to `WP_Error`. |
+| `GuardarianService` | Quote validation against min/max, idempotent session creation (dedups same address+amount within 5 min), status sync + transient cache, webhook application. |
+| `OnrampSessionModel` | `wp_cm_onramp_sessions` CRUD + status enum (terminal: `finished/failed/expired/cancelled/refunded`). |
+| `OnrampPublicController` | REST: quote, create/poll session, wallet-balance passthrough. |
+| `OnrampWebhookController` | Optional Guardarian status webhook, **IP-allowlisted** (empty allowlist = refuse all). |
+
+Operator config lives on the **Payment Wallets → On-Ramp** tab: encrypted API key (+ optional secret), environment (production/staging), fee-buffer ADA, optional preset payout address, webhook IP allowlist, and an enable toggle. A "Test connection" button probes the Guardarian API. Recent sessions are listed with manual refresh.
+
+## Asset Upgrade (Burn & Re-mint)
+
+Refresh an existing NFT's CIP-25 metadata **without changing its fingerprint** — same `policyId` + `assetName`, new metadata. Because the ledger rejects a net-zero mint, this is a coordinated **two-transaction** flow rather than one atomic update:
+
+1. **Burn** — `mint: [{ quantity: -1, assetName, version: 'cip25' }]`, no metadata, no output. The target metadata is resolved *before* the burn (for policy-wide patches, chain data is gone afterward) and stashed in a 2-hour transient.
+2. **Re-mint** — `mint: [{ quantity: +1, assetName, metadata }]` with a 1.5 ADA min-UTxO output back to the customer.
+
+Customer flow (`[cardano-upgrade]`): connect CIP-30 wallet → backend resolves eligible NFTs via Blockfrost (stake-address asset lookup) → customer reviews the current-vs-proposed diff → signs the burn, then signs the re-mint → a 5-minute confirmation cron flips audit rows to `confirmed` once the txs land. The customer pays the ~0.17 ADA network fee (merchant subsidy is layerable later).
+
+| Piece | What it does |
+|-------|--------------|
+| `AssetUpgradeService` | `build()` (burn or re-mint), `submit()` (adds policy-wallet witness, reuses the standard mint submit), `confirmation_tick()` (cron). Time-lock re-checked at build time, not just registration. |
+| `MetadataResolver` | Shallow `applyPatch()` (per-asset rows beat policy-wide rows), CIP-25 bundle parsing, ASCII↔hex asset-name encoding. |
+| `AssetUpgradeAdminController` | Register/pause/remove policies, save policy-wide patches or per-asset bundles, preview the resolved diff. Shares the Payment Wallets 2FA gate. |
+| `AssetUpgradePublicController` | REST: `/upgrade/eligible`, `/upgrade/build`, `/upgrade/submit`. |
+
+Specs live in `wp_cardano_asset_upgrades` (one row per `(policy_id, asset_name)`; empty `asset_name` = policy-wide patch); every build/submit/confirm/fail is recorded append-only in `wp_cardano_asset_upgrade_log`.
+
 ## Wallet Network Gate
 
 Defense in depth at four layers. Any one of them rejects a mint where the customer's Cardano wallet is on a different network than the site:
@@ -128,8 +173,16 @@ Namespace: `cardano-mint/v1`
 | POST | `/altpay/quote`       | Public (rate-limited) | Issue a payment intent on a non-Cardano chain. Network-gated. |
 | GET  | `/altpay/status`      | Public  | Poll invoice status + observed amount + confirmations |
 | POST | `/altpay/cancel`      | Public  | Cancel a pending alt-pay invoice |
+| POST | `/onramp/quote`       | Nonce   | Indicative ADA estimate for a fiat amount (Guardarian) |
+| POST | `/onramp/sessions`    | Nonce   | Create a Guardarian on-ramp transaction; returns hosted-checkout `redirect_url` |
+| GET  | `/onramp/sessions/{partner_link_id}` | Nonce | Poll on-ramp session status |
+| GET  | `/onramp/wallet-balance` | Nonce | Blockfrost balance passthrough (detect ADA arrival) |
+| POST | `/onramp/webhooks/guardarian` | IP allowlist | Receive Guardarian status webhooks |
+| POST | `/upgrade/eligible`   | Nonce   | List wallet NFTs eligible for a metadata upgrade |
+| POST | `/upgrade/build`      | Nonce   | Build the burn or re-mint tx (Anvil proxy). Time-lock gated. |
+| POST | `/upgrade/submit`     | Nonce   | Submit signed burn/re-mint; adds policy signature server-side. |
 
-API keys go in `X-CM-Api-Key`. CORS is enforced per registered origin.
+API keys go in `X-CM-Api-Key`. CORS is enforced per registered origin. The on-ramp and upgrade endpoints are nonce-authenticated (rendered by their shortcodes) rather than API-key-gated.
 
 ## Widget Deployer
 
@@ -165,10 +218,12 @@ cardano-easy-mint/
 │       └── cm-widget.js               Embeddable widget (Shadow DOM, zero deps)
 ├── includes/
 │   ├── controllers/
-│   │   ├── NFTCheckoutController.php  Mint modal AJAX, network gate, qty validation
+│   │   ├── NFTCheckoutController.php  Mint modal AJAX, network gate, qty validation, bulk JSON import
 │   │   ├── PolicyWalletController.php Cardano policy wallet management
 │   │   ├── RestApiController.php      REST API + alt-pay endpoints + CORS
 │   │   ├── AltPayAdminController.php  Alt-chain admin pages + AJAX
+│   │   ├── OnrampPublicController.php / OnrampWebhookController.php / OnrampAdminController.php
+│   │   ├── AssetUpgradeAdminController.php / AssetUpgradePublicController.php
 │   │   ├── WidgetAdminController.php  Widget deployer admin
 │   │   └── AJAXController.php         Anvil API test + rate limiting
 │   ├── helpers/
@@ -192,11 +247,20 @@ cardano-easy-mint/
 │   │   ├── lib/                       Bn (GMP/bcmath), Secp256k1, Keccak, Rlp
 │   │   ├── providers/                 BtcProvider, EthProvider, SolProvider
 │   │   └── rpc/                       MempoolClient, EthRpcClient, SolRpcClient
+│   ├── onramp/                        Fiat→ADA on-ramp (Guardarian)
+│   │   ├── GuardarianClient.php       Guardarian HTTP client (encrypted keys)
+│   │   ├── GuardarianService.php      Quote / create session / status / webhook
+│   │   └── OnrampInstaller.php        Schema migration (wp_cm_onramp_sessions)
+│   ├── asset-upgrade/                 Burn & re-mint CIP-25 metadata refresh
+│   │   ├── AssetUpgradeService.php    build (burn/remint) / submit / confirmation cron
+│   │   ├── MetadataResolver.php       Patch merge + CIP-25 bundle parsing + name encoding
+│   │   └── AssetUpgradeInstaller.php  Schema migration (specs + audit log)
 │   ├── models/
 │   │   ├── MintModel.php              Mint + per-wallet limit accounting
 │   │   ├── ChainWalletModel.php       Alt-chain parent HD wallets
 │   │   ├── ChainInvoiceModel.php      Alt-chain invoices
-│   │   └── ChainTxLogModel.php        On-chain tx audit log
+│   │   ├── ChainTxLogModel.php        On-chain tx audit log
+│   │   └── OnrampSessionModel.php     Guardarian on-ramp sessions
 │   └── views/
 │       ├── mint-manager.php
 │       ├── active-mints-list.php
@@ -218,6 +282,9 @@ cardano-easy-mint/
 | `wp_cm_chain_wallets` | Alt-chain parent HD wallets (encrypted xprv) |
 | `wp_cm_chain_invoices` | Per-mint alt-chain payment intents |
 | `wp_cm_chain_tx_log` | Inbound, refund, and sweep tx audit log |
+| `wp_cm_onramp_sessions` | Guardarian fiat→ADA on-ramp sessions (audit + status) |
+| `wp_cardano_asset_upgrades` | Asset-upgrade specs (policy-wide patch or per-asset metadata) |
+| `wp_cardano_asset_upgrade_log` | Append-only burn→re-mint audit log |
 
 ## Security
 
