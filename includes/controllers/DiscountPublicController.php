@@ -66,7 +66,16 @@ class DiscountPublicController {
 
         $res = DiscountService::validate($code, $policy_id, $per_asset_usd, $quantity);
         if (empty($res['ok'])) {
-            wp_send_json_error(['message' => $res['error'] ?? 'That code isn\'t valid.']);
+            // Log the precise reason so a prod "code rejected" report is diagnosable
+            // (which code, against which policy, and exactly why).
+            error_log(sprintf(
+                '[Discount] validate REJECTED code=%s policy=%s asset=%d reason=%s msg=%s',
+                $code, $policy_id, $asset_id, ($res['reason'] ?? 'unknown'), ($res['error'] ?? '')
+            ));
+            wp_send_json_error([
+                'message' => $res['error'] ?? 'That code isn\'t valid.',
+                'reason'  => $res['reason'] ?? 'unknown',
+            ]);
         }
 
         $p    = $res['pricing'];

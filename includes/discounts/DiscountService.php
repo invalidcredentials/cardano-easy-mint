@@ -109,34 +109,38 @@ class DiscountService {
         if ($code === '') return ['ok' => false, 'error' => 'Enter a code.'];
 
         $codeRow = DiscountModel::get_code_by_string($code);
-        if (!$codeRow)                       return ['ok' => false, 'error' => 'That code isn\'t valid.'];
-        if ($codeRow['status'] !== 'active') return ['ok' => false, 'error' => 'This code has already been used or is no longer active.'];
+        if (!$codeRow)                       return ['ok' => false, 'error' => 'We couldn\'t find that code — double-check the spelling.', 'reason' => 'not_found'];
+        if ($codeRow['status'] === 'disabled') return ['ok' => false, 'error' => 'This code has been disabled.', 'reason' => 'disabled'];
+        if ($codeRow['status'] !== 'active') return ['ok' => false, 'error' => 'This code has already been used.', 'reason' => 'code_status_' . $codeRow['status']];
 
         $campaign = DiscountModel::get_campaign((int) $codeRow['campaign_id']);
-        if (!$campaign)                       return ['ok' => false, 'error' => 'That code isn\'t valid.'];
-        if ($campaign['status'] !== 'active') return ['ok' => false, 'error' => 'This promotion is not currently active.'];
+        // Orphaned code: its campaign row is gone (e.g. campaign deleted, or the
+        // codes survived a redeploy/migration their campaign didn't). This is the
+        // OTHER thing that used to surface as the generic "isn't valid".
+        if (!$campaign)                       return ['ok' => false, 'error' => 'This code is no longer set up (its promotion was removed). Ask for a new one.', 'reason' => 'campaign_missing'];
+        if ($campaign['status'] !== 'active') return ['ok' => false, 'error' => 'This promotion is not currently active.', 'reason' => 'campaign_' . $campaign['status']];
 
         if (!hash_equals(strtolower((string) $campaign['policy_id']), strtolower($policyId))) {
-            return ['ok' => false, 'error' => 'This code isn\'t valid for this collection.'];
+            return ['ok' => false, 'error' => 'This code is for a different collection.', 'reason' => 'wrong_collection'];
         }
 
         $now = current_time('timestamp');
         if (!empty($campaign['starts_at']) && $now < strtotime((string) $campaign['starts_at'])) {
-            return ['ok' => false, 'error' => 'This promotion hasn\'t started yet.'];
+            return ['ok' => false, 'error' => 'This promotion hasn\'t started yet.', 'reason' => 'not_started'];
         }
         if (!empty($campaign['expires_at']) && $now > strtotime((string) $campaign['expires_at'])) {
-            return ['ok' => false, 'error' => 'This code has expired.'];
+            return ['ok' => false, 'error' => 'This code has expired.', 'reason' => 'expired'];
         }
 
         // Committed-use ceiling (the live reservation gate is enforced in reserve()).
         $allowed = (int) $codeRow['uses_allowed'];
         if ($allowed > 0 && (int) $codeRow['uses_count'] >= $allowed) {
-            return ['ok' => false, 'error' => 'This code has already been used.'];
+            return ['ok' => false, 'error' => 'This code has already been fully redeemed.', 'reason' => 'exhausted'];
         }
 
         $type = (string) $campaign['discount_type'];
         if (!in_array($type, ['percent', 'fixed'], true)) {
-            return ['ok' => false, 'error' => 'This discount type is not available yet.'];
+            return ['ok' => false, 'error' => 'This discount type is not available yet.', 'reason' => 'bad_type'];
         }
 
         return [

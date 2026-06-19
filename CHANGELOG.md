@@ -2,6 +2,30 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.5.2] - 2026-06-19
+
+Discount codes — honest rejection messages + diagnosability (after a prod incident
+where valid codes showed a generic "That code isn't valid.").
+
+### Fixed
+- **The generic "That code isn't valid." hid two very different causes.** It fired
+  both when a code wasn't found AND when a code's **campaign row was missing**
+  (orphaned code — e.g. codes that outlived their campaign across a
+  redeploy/migration). These now read distinctly ("We couldn't find that code…"
+  vs "This code is no longer set up (its promotion was removed)…").
+- **The checkout JS fell back to that same string on any failed request** — so an
+  unreachable validate endpoint looked identical to a bad code. It now says
+  "Couldn't check that code right now — please try again." when the request
+  doesn't land, instead of blaming the code.
+- Every rejection path now carries a machine `reason` (`not_found`,
+  `campaign_missing`, `expired`, `exhausted`, `wrong_collection`, `disabled`, …),
+  and the validate endpoint **logs the code + policy + reason** server-side so a
+  prod "code rejected" report is diagnosable at a glance.
+
+### Notes
+- No schema or data change. Expired / used / wrong-collection / paused already had
+  specific messages; this closes the two ambiguous cases + the silent JS fallback.
+
 ## [4.5.1] - 2026-06-18
 
 Discount codes **phase 2: alt-pay** (BTC / ETH / SOL).
