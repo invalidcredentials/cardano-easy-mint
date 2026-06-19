@@ -667,7 +667,12 @@
             btn.disabled = false;
             if (!res.success) {
                 status.className = 'discount-entry-status is-error';
-                status.textContent = (res.data && res.data.message) || 'That code isn\'t valid.';
+                // The server always sends a specific reason on a real rejection
+                // (not found / expired / used / wrong collection / etc.). No
+                // message means the request itself didn't land — say that instead
+                // of falsely claiming the code is invalid.
+                status.textContent = (res && res.data && res.data.message)
+                    || 'Couldn\'t check that code right now — please try again.';
                 return;
             }
             appliedDiscount = {
