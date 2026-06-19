@@ -2,6 +2,31 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.5.1] - 2026-06-18
+
+Discount codes **phase 2: alt-pay** (BTC / ETH / SOL).
+
+### Added
+- A code now applies to **every** payment method. The discount box moved to the
+  payment-select step (right after wallet connect), so it's entered before a
+  chain is chosen — for alt-pay it's baked into the **quoted crypto amount** at
+  `/altpay/quote` (the deposit address the watcher waits on already reflects the
+  discount); for ADA it still applies at build/sign.
+- Alt-pay reservations are **held for the invoice's 24h life** (not the 15-min
+  ADA TTL): `count_live_uses` counts invoice-linked holds regardless of age, the
+  sweeper leaves them alone while the invoice is live, and releases them only
+  when the invoice dies (`expired` / `cancelled` / `refunded`). The hold is
+  committed when the mint is submitted (`commit_for_invoice`).
+
+### Files
+- `AltPayService::quote` (accepts `discount_code`, discounts the USD before
+  locking the amount, links the reservation to the invoice), `RestApiController`
+  (`/altpay/quote` threads `discount_code`), `DiscountService`
+  (`link_invoice` / `commit_for_invoice`, alt-pay-aware `sweep`), `DiscountModel`
+  (alt-pay-aware `count_live_uses` / `release_stale` + `release_for_dead_invoices`
+  + `get_reserved_by_invoice`), the mint modal (discount box on the payment step),
+  and `altpay-checkout.js` (sends the code with the quote).
+
 ## [4.5.0] - 2026-06-18
 
 Adds **discount codes** — e-commerce-style coupons for the mint checkout (phase 1: ADA path). See `docs/DISCOUNT_CODES_BUILD_PLAN.md`.

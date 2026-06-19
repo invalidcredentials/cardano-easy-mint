@@ -171,8 +171,10 @@ class DiscountModel {
 
     /**
      * Count uses already taken or held for a code: committed redemptions plus
-     * live (non-expired) reservations. Used by the reserve gate alongside the
-     * code's own uses_count.
+     * live reservations. ADA reservations (invoice_id NULL) only count inside
+     * the short TTL; alt-pay reservations (invoice_id NOT NULL) count for as
+     * long as they're held — the customer may take hours to send BTC, and the
+     * sweeper releases them only when the linked invoice dies.
      */
     public static function count_live_uses(int $codeId, int $ttlMinutes): int {
         global $wpdb;
@@ -180,8 +182,19 @@ class DiscountModel {
         $sql = "SELECT COUNT(*) FROM `$tbl`
                 WHERE code_id = %d
                   AND (status = 'redeemed'
-                       OR (status = 'reserved' AND reserved_at > DATE_SUB(NOW(), INTERVAL %d MINUTE)))";
+                       OR (status = 'reserved' AND invoice_id IS NOT NULL)
+                       OR (status = 'reserved' AND invoice_id IS NULL AND reserved_at > DATE_SUB(NOW(), INTERVAL %d MINUTE)))";
         return (int) $wpdb->get_var($wpdb->prepare($sql, $codeId, $ttlMinutes));
+    }
+
+    public static function get_reserved_by_invoice(int $invoiceId): ?array {
+        global $wpdb;
+        $tbl = self::t_redemptions();
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM `$tbl` WHERE invoice_id = %d AND status = 'reserved' ORDER BY id DESC LIMIT 1",
+            $invoiceId
+        ), ARRAY_A);
+        return $row ?: null;
     }
 
     public static function mark_redemption(int $id, string $status, array $extra = []): bool {
@@ -193,13 +206,38 @@ class DiscountModel {
         return false !== $wpdb->update(self::t_redemptions(), $data, ['id' => $id]);
     }
 
-    /** Release reservations older than the TTL. Returns count released. */
+    /**
+     * Release stale ADA reservations (invoice_id NULL) older than the TTL.
+     * Alt-pay reservations are exempt here — they're held for the life of the
+     * invoice and released by release_for_dead_invoices() instead.
+     */
     public static function release_stale(int $ttlMinutes): int {
         global $wpdb;
         $tbl = self::t_redemptions();
         $sql = "UPDATE `$tbl` SET status = 'released'
-                WHERE status = 'reserved' AND reserved_at <= DATE_SUB(NOW(), INTERVAL %d MINUTE)";
+                WHERE status = 'reserved' AND invoice_id IS NULL
+                  AND reserved_at <= DATE_SUB(NOW(), INTERVAL %d MINUTE)";
         return (int) $wpdb->query($wpdb->prepare($sql, $ttlMinutes));
+    }
+
+    /**
+     * Release alt-pay reservations whose linked invoice is dead (expired /
+     * cancelled / refunded), so the held code frees up. Consumed invoices are
+     * left alone — those get committed at mint submit.
+     */
+    public static function release_for_dead_invoices(): int {
+        global $wpdb;
+        $r   = self::t_redemptions();
+        $inv = $wpdb->prefix . 'cm_chain_invoices';
+        // Only run if the alt-pay invoices table exists (feature may be off).
+        if ((string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $inv)) !== $inv) return 0;
+        $sql = "UPDATE `$r` red
+                JOIN `$inv` i ON i.id = red.invoice_id
+                SET red.status = 'released'
+                WHERE red.status = 'reserved'
+                  AND red.invoice_id IS NOT NULL
+                  AND i.status IN ('expired','cancelled','refunded')";
+        return (int) $wpdb->query($sql);
     }
 
     public static function list_redemptions(int $campaignId, int $limit = 500, int $offset = 0): array {

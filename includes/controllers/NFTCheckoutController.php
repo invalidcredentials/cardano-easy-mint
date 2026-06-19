@@ -626,6 +626,9 @@ class NFTCheckoutController {
             if ($invoice_id > 0 && class_exists('CardanoMintPay\\Models\\ChainInvoiceModel')) {
                 \CardanoMintPay\Models\ChainInvoiceModel::set_status($invoice_id, 'consumed');
                 error_log("[AltPay] legacy submit: invoice $invoice_id marked consumed (tx $tx_hash)");
+                // Commit any discount reservation tied to this alt-pay invoice.
+                $dcommit = DiscountService::commit_for_invoice($invoice_id, $tx_hash);
+                error_log("[Discount] commit for invoice $invoice_id: " . ($dcommit ? 'ok' : 'none'));
             }
 
             // Discount: commit the reservation now that the mint is on-chain, so

@@ -220,9 +220,33 @@ class DiscountService {
         return DiscountModel::mark_redemption($redemptionId, 'released');
     }
 
-    /** Cron: release reservations past the TTL. */
+    /**
+     * Link a (just-created) reservation to its alt-pay invoice. Keeps the row
+     * 'reserved' but stamps invoice_id, which exempts it from the TTL sweep and
+     * lets commit_for_invoice find it when the invoice is consumed.
+     */
+    public static function link_invoice(int $redemptionId, int $invoiceId): bool {
+        if ($redemptionId <= 0 || $invoiceId <= 0) return false;
+        return DiscountModel::mark_redemption($redemptionId, 'reserved', ['invoice_id' => $invoiceId]);
+    }
+
+    /** Commit the reservation tied to an alt-pay invoice once the mint lands. */
+    public static function commit_for_invoice(int $invoiceId, ?string $txHash = null): bool {
+        if ($invoiceId <= 0) return false;
+        $red = DiscountModel::get_reserved_by_invoice($invoiceId);
+        if (!$red) return false;
+        if (!DiscountModel::bump_code_use((int) $red['code_id'])) {
+            DiscountModel::mark_redemption((int) $red['id'], 'released');
+            return false;
+        }
+        return DiscountModel::mark_redemption((int) $red['id'], 'redeemed', ['tx_hash' => $txHash]);
+    }
+
+    /** Cron: release stale ADA holds + alt-pay holds whose invoice has died. */
     public static function sweep(): int {
-        return DiscountModel::release_stale(self::RESERVATION_TTL_MIN);
+        $n  = DiscountModel::release_stale(self::RESERVATION_TTL_MIN);
+        $n += DiscountModel::release_for_dead_invoices();
+        return $n;
     }
 
     /* ------------------------------------------------------------------- helpers */
