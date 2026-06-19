@@ -45,11 +45,11 @@ if (!defined('ABSPATH')) exit;
 
                 <fieldset class="cmd-field">
                     <span>Discount type</span>
-                    <label class="cmd-radio"><input type="radio" name="discount_type" value="percent" checked> % off</label>
+                    <label class="cmd-radio"><input type="radio" name="discount_type" value="percent"> % off</label>
                     <label class="cmd-radio"><input type="radio" name="discount_type" value="fixed"> Fixed $ off</label>
                 </fieldset>
 
-                <label class="cmd-field" data-when="percent">
+                <label class="cmd-field" data-when="percent" hidden>
                     <span>Percent off</span>
                     <input type="number" name="percent_off" min="1" max="100" step="1" value="75"> %
                 </label>

@@ -7,6 +7,9 @@
 .cmd-card h2 { margin-top: 0; }
 
 .cmd-field { display: block; margin: 0 0 14px; }
+/* The [hidden] attribute must beat the display rules above so the conditional
+   value / code-mode fields actually stay hidden until their type is selected. */
+.cmd-wrap [hidden] { display: none !important; }
 .cmd-field > span { display: block; font-weight: 600; margin-bottom: 4px; }
 .cmd-field > span small { font-weight: 400; color: #777; }
 .cmd-field input[type="text"], .cmd-field input[type="number"], .cmd-field input[type="datetime-local"], .cmd-field select { width: 100%; max-width: 100%; box-sizing: border-box; }
@@ -31,3 +34,5 @@ fieldset.cmd-field { border: 0; padding: 0; margin: 0 0 14px; }
 .cmd-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 @media (max-width: 1400px) { .cmd-detail-grid { grid-template-columns: 1fr; } }
 .cmd-detail code { font-size: 12px; }
+.cmd-pager { display: flex; align-items: center; gap: 12px; margin-top: 10px; font-size: 13px; }
+.cmd-pager span { color: #555; }
