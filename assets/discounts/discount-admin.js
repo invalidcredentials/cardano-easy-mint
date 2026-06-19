@@ -98,30 +98,57 @@
 		});
 	}
 
+	// Codes can run into the hundreds (a 50–500 batch), so the detail view
+	// paginates them 10 at a time.
+	var detailCodes = [];
+	var detailPage = 0;
+	var CODES_PER_PAGE = 10;
+
+	function renderCodesPage() {
+		var host = document.getElementById('cmd-codes-host');
+		if (!host) return;
+		var total = detailCodes.length;
+		var pages = Math.max(1, Math.ceil(total / CODES_PER_PAGE));
+		if (detailPage >= pages) detailPage = pages - 1;
+		if (detailPage < 0) detailPage = 0;
+		var start = detailPage * CODES_PER_PAGE;
+		var rows = detailCodes.slice(start, start + CODES_PER_PAGE).map(function (k) {
+			var dis = k.status === 'disabled';
+			return '<tr><td><code>' + esc(k.code) + '</code></td><td>' + esc(k.uses_count) + '/' +
+				(Number(k.uses_allowed) === 0 ? '∞' : esc(k.uses_allowed)) + '</td><td>' + esc(k.status) + '</td>' +
+				'<td>' + (dis ? '' : '<button class="button-link" data-disable="' + esc(k.id) + '">disable</button>') + '</td></tr>';
+		}).join('') || '<tr><td colspan="4">none</td></tr>';
+		var pager = total > CODES_PER_PAGE
+			? '<div class="cmd-pager">' +
+				'<button class="button" data-codes-prev ' + (detailPage === 0 ? 'disabled' : '') + '>‹ Prev</button>' +
+				'<span>Page ' + (detailPage + 1) + ' / ' + pages + ' · ' + total + ' codes</span>' +
+				'<button class="button" data-codes-next ' + (detailPage >= pages - 1 ? 'disabled' : '') + '>Next ›</button>' +
+			  '</div>'
+			: '';
+		host.innerHTML = '<table class="widefat striped"><thead><tr><th>Code</th><th>Uses</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>' + pager;
+	}
+
 	function viewCampaign(id) {
 		var detail = $('#cmd-detail');
 		detail.hidden = false;
 		detail.innerHTML = 'Loading…';
 		post('cardano_discount_view_campaign', { campaign_id: id }).then(function (res) {
 			if (!res || !res.success) { detail.innerHTML = 'Could not load campaign.'; return; }
-			var c = res.data.campaign, codes = res.data.codes || [], reds = res.data.redemptions || [];
-			var codeRows = codes.map(function (k) {
-				var dis = k.status === 'disabled';
-				return '<tr><td><code>' + esc(k.code) + '</code></td><td>' + esc(k.uses_count) + '/' +
-					(Number(k.uses_allowed) === 0 ? '∞' : esc(k.uses_allowed)) + '</td><td>' + esc(k.status) + '</td>' +
-					'<td>' + (dis ? '' : '<button class="button-link" data-disable="' + esc(k.id) + '">disable</button>') + '</td></tr>';
-			}).join('');
+			var c = res.data.campaign, reds = res.data.redemptions || [];
+			detailCodes = res.data.codes || [];
+			detailPage = 0;
 			var redRows = reds.map(function (r) {
 				return '<tr><td><code>' + esc(r.code) + '</code></td><td>' + esc(r.status) + '</td><td>' +
 					esc(r.payment_method) + '</td><td>$' + esc(r.final_usd) + '</td><td><code>' +
 					esc((r.wallet_address || '').slice(0, 16)) + '</code></td><td>' + esc(r.redeemed_at || '') + '</td></tr>';
-			}).join('');
+			}).join('') || '<tr><td colspan="6">none</td></tr>';
 			detail.innerHTML =
 				'<h3>' + esc(c.title) + ' <a class="button" href="' + csvUrl(c.id) + '">Export CSV</a></h3>' +
 				'<div class="cmd-detail-grid">' +
-					'<div><h4>Codes (' + codes.length + ')</h4><table class="widefat striped"><thead><tr><th>Code</th><th>Uses</th><th>Status</th><th></th></tr></thead><tbody>' + (codeRows || '<tr><td colspan="4">none</td></tr>') + '</tbody></table></div>' +
-					'<div><h4>Redemptions (' + reds.length + ')</h4><table class="widefat striped"><thead><tr><th>Code</th><th>Status</th><th>Pay</th><th>Paid</th><th>Wallet</th><th>When</th></tr></thead><tbody>' + (redRows || '<tr><td colspan="6">none</td></tr>') + '</tbody></table></div>' +
+					'<div><h4>Codes (' + detailCodes.length + ')</h4><div id="cmd-codes-host"></div></div>' +
+					'<div><h4>Redemptions (' + reds.length + ')</h4><table class="widefat striped"><thead><tr><th>Code</th><th>Status</th><th>Pay</th><th>Paid</th><th>Wallet</th><th>When</th></tr></thead><tbody>' + redRows + '</tbody></table></div>' +
 				'</div>';
+			renderCodesPage();
 		});
 	}
 
@@ -151,8 +178,13 @@
 				e.preventDefault();
 				if (!window.confirm('Disable this code? It can no longer be redeemed.')) return;
 				var id = t.getAttribute('data-disable');
-				post('cardano_discount_disable_code', { code_id: id }).then(function () { t.closest('tr').children[2].textContent = 'disabled'; t.remove(); });
-			}
+				post('cardano_discount_disable_code', { code_id: id }).then(function () {
+					var hit = detailCodes.filter(function (k) { return String(k.id) === String(id); })[0];
+					if (hit) hit.status = 'disabled';
+					renderCodesPage();
+				});
+			} else if (t.matches('[data-codes-prev]')) { e.preventDefault(); detailPage--; renderCodesPage(); }
+			else if (t.matches('[data-codes-next]')) { e.preventDefault(); detailPage++; renderCodesPage(); }
 		});
 
 		loadCampaigns();
