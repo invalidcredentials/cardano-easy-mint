@@ -1548,25 +1548,31 @@ margin: 0 0 0 20px;
     flex: 1 1 auto;
     min-width: 0;
     box-sizing: border-box;
-    padding: 8px 10px;
-    border: 1px solid rgba(0, 0, 0, 0.2);
-    border-radius: 8px;
+    padding: 9px 12px;
+    border: 2px solid #e5e7eb;
+    border-radius: 6px;
     font: inherit;
     text-transform: uppercase;
 }
+.discount-entry-row input:focus { outline: none; border-color: #376E7A; }
 .discount-entry-row input:disabled { background: #f3f4f5; color: #555; }
+/* Match the modal's primary buttons (MINT NOW / Continue): near-black with a
+   teal hover, not the WordPress blue. */
 .discount-apply-btn {
     flex: 0 0 auto;
-    padding: 8px 16px;
+    padding: 9px 20px;
     border: 0;
-    border-radius: 8px;
-    background: #2271b1;
-    color: #fff;
+    border-radius: 6px;
+    background: #0A090C;
+    color: #fefefc;
     font: inherit;
     font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
     cursor: pointer;
+    transition: background-color 0.2s ease;
 }
-.discount-apply-btn:hover { background: #185a8f; }
+.discount-apply-btn:hover { background: #376E7A; }
 .discount-apply-btn:disabled { opacity: 0.6; cursor: default; }
 .discount-entry-status { margin-top: 6px; min-height: 1.1em; font-size: 12.5px; }
 .discount-entry-status.is-error { color: #b32d2e; }
