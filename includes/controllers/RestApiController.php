@@ -410,7 +410,8 @@ class RestApiController {
         }
         set_transient( $rl_key, $rl_ct + 1, 60 );
 
-        $res = AltPayService::quote( $mint_id, $chain, $caddr );
+        $discount_code = strtoupper( trim( (string) ( $params['discount_code'] ?? '' ) ) );
+        $res = AltPayService::quote( $mint_id, $chain, $caddr, $discount_code );
         if ( is_wp_error( $res ) ) {
             return new \WP_REST_Response( array( 'error' => $res->get_error_message() ), 400 );
         }

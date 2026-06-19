@@ -3,6 +3,7 @@ namespace CardanoMintPay\Controllers;
 
 use CardanoMintPay\Models\MintModel;
 use CardanoMintPay\Helpers\AnvilAPI;
+use CardanoMintPay\Discounts\DiscountService;
 
 class NFTCheckoutController {
 
@@ -505,6 +506,23 @@ class NFTCheckoutController {
         error_log("  usd_price: " . $usd_price);
         error_log("  policy_id: " . $policy_id);
 
+        // Discount code (ADA path). Validated + reserved server-side; the code
+        // only reduces the MSRP component of $usd_price — the +1 ADA/asset
+        // minting fee is added downstream in buildMintTransaction AFTER the
+        // USD→ADA conversion, so fees survive even a 100%-off code (DC-D2).
+        // Alt-paid mints discount at quote time instead (phase 2), so skip here.
+        $discount_redemption_id = 0;
+        $discount_code = strtoupper(trim((string) ($_POST['discount_code'] ?? '')));
+        if ($discount_code !== '' && $invoice_id <= 0) {
+            $reserve = DiscountService::reserve($discount_code, $policy_id, $usd_price, $quantity, 'ada', $customer_address);
+            if (empty($reserve['ok'])) {
+                wp_send_json_error(['message' => $reserve['error'] ?? 'That code isn\'t valid.']);
+            }
+            $usd_price = (float) $reserve['pricing']['final_per_asset_usd'];
+            $discount_redemption_id = (int) $reserve['redemption_id'];
+            error_log("[Discount] code {$discount_code} reserved (redemption {$discount_redemption_id}); per-asset price -> {$usd_price}");
+        }
+
         // Build transaction via Anvil API with mint metadata. Quantity is passed
         // through so a single tx mints N unique assets for one signature.
         $response = AnvilAPI::buildMintTransaction($merchant_address, $customer_address, $usd_price, $policy_id, 'mint', $mint_data, $quantity);
@@ -515,10 +533,14 @@ class NFTCheckoutController {
 
         // DEBUG: Add price info and mint limits info to response for frontend debugging
         $response['debug_price_info'] = array(
-            'usd_price_used'      => $usd_price,        // From DB (authoritative).
+            'usd_price_used'      => $usd_price,        // From DB (authoritative), post-discount.
             'usd_price_posted'    => $posted_usd_price, // From client (ignored).
             'ada_usd_rate_cached' => (float) AnvilAPI::getAdaPrice(),
         );
+
+        // Carry the discount reservation back so the submit step can commit it
+        // once the signed tx lands. Held for DiscountService::RESERVATION_TTL_MIN.
+        $response['discount_redemption_id'] = $discount_redemption_id;
 
         $response['debug_mint_limits'] = array(
             'policy_id' => $policy_id,
@@ -604,6 +626,19 @@ class NFTCheckoutController {
             if ($invoice_id > 0 && class_exists('CardanoMintPay\\Models\\ChainInvoiceModel')) {
                 \CardanoMintPay\Models\ChainInvoiceModel::set_status($invoice_id, 'consumed');
                 error_log("[AltPay] legacy submit: invoice $invoice_id marked consumed (tx $tx_hash)");
+                // Commit any discount reservation tied to this alt-pay invoice.
+                $dcommit = DiscountService::commit_for_invoice($invoice_id, $tx_hash);
+                error_log("[Discount] commit for invoice $invoice_id: " . ($dcommit ? 'ok' : 'none'));
+            }
+
+            // Discount: commit the reservation now that the mint is on-chain, so
+            // a single-use code is permanently spent. Wallet-bound + atomic, so a
+            // tampered id just no-ops. If the reservation expired (TTL) the price
+            // is already locked in the signed tx, so this is best-effort.
+            $discount_redemption_id = intval($_POST['discount_redemption_id'] ?? 0);
+            if ($discount_redemption_id > 0) {
+                $committed = DiscountService::commit($discount_redemption_id, $wallet_address, $tx_hash);
+                error_log("[Discount] commit redemption {$discount_redemption_id}: " . ($committed ? 'ok' : 'no-op'));
             }
         }
 

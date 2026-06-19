@@ -46,7 +46,7 @@ class AltPayService {
      *
      * @return array|\WP_Error On success: invoice row + display fields.
      */
-    public static function quote(int $mintId, string $chain, string $customerCardanoAddress) {
+    public static function quote(int $mintId, string $chain, string $customerCardanoAddress, string $discountCode = '') {
         $chain = strtolower($chain);
 
         $provider = self::provider($chain);
@@ -109,6 +109,23 @@ class AltPayService {
         $address = $provider->deriveChildAddress((int) $wallet['id'], $index);
         if ($address === '') return new \WP_Error('altpay_derive_failed', 'Could not derive child address');
 
+        // Discount code: reserve + discount the USD the customer actually pays
+        // BEFORE we lock the crypto amount, so the deposit address the watcher
+        // waits on already reflects the discount. Alt-pay is always qty 1. The
+        // reservation is linked to the invoice below and held for the invoice's
+        // life (not the short ADA TTL).
+        $reservationId = 0;
+        if ($discountCode !== '' && class_exists('CardanoMintPay\\Discounts\\DiscountService')) {
+            $res = \CardanoMintPay\Discounts\DiscountService::reserve(
+                $discountCode, (string) ($mint['policyid'] ?? ''), $usd, 1, $chain, $customerCardanoAddress
+            );
+            if (empty($res['ok'])) {
+                return new \WP_Error('altpay_discount_invalid', $res['error'] ?? 'That code isn\'t valid.');
+            }
+            $usd = (float) $res['pricing']['final_per_asset_usd'];
+            $reservationId = (int) $res['redemption_id'];
+        }
+
         $expectedMinor = $provider->expectedAmountMinor($usd, $rate);
 
         $now = time();
@@ -128,6 +145,12 @@ class AltPayService {
         ]);
 
         if ($invoiceId <= 0) return new \WP_Error('altpay_insert_failed', 'Could not persist invoice');
+
+        // Bind the discount reservation to this invoice so it's held for the
+        // 24h payment window and committed when the mint lands.
+        if ($reservationId > 0 && class_exists('CardanoMintPay\\Discounts\\DiscountService')) {
+            \CardanoMintPay\Discounts\DiscountService::link_invoice($reservationId, $invoiceId);
+        }
 
         return [
             'invoice_id'             => $invoiceId,
