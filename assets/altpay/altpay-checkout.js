@@ -464,10 +464,17 @@
             const startBtn = preinit.querySelector('[data-altpay-action="start"]');
             if (startBtn) { startBtn.disabled = true; startBtn.textContent = 'Generating address…'; }
 
+            // A discount code applied on the payment-select step is baked into
+            // the quoted crypto amount the watcher waits for (server reserves +
+            // discounts; the deposit panel then shows the reduced amount).
+            var appliedEl = document.getElementById('discount-code-applied');
+            var discountCode = appliedEl ? (appliedEl.value || '') : '';
+
             rest('/altpay/quote', 'POST', {
                 mint_id: mintId,
                 payment_method: chain,
                 customer_cardano_address: customerCardano,
+                discount_code: discountCode,
             }).then(function (q) {
                 const stored = {
                     invoice_id: q.invoice_id,

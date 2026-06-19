@@ -774,17 +774,13 @@
         if (!dec || !inc || !inp) return;
 
         // Visibility/qty pin for alt-pay (re-checked on every Step 2 entry).
-        // Discount entry is ADA-only in v1, so it hides under alt-pay too.
-        const discEntry = document.getElementById('discount-entry');
         if (isAltPayActive()) {
             inp.value = '1';
             if (row)  row.style.display = 'none';
             if (hint) hint.style.display = 'none';
-            if (discEntry) discEntry.style.display = 'none';
         } else {
             if (row)  row.style.display = '';
             if (hint) hint.style.display = '';
-            if (discEntry) discEntry.style.display = '';
         }
 
         if (dec.dataset.bound) return;
