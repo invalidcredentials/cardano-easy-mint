@@ -1522,3 +1522,52 @@ margin: 0 0 0 20px;
         text-align: center;
     }
 }
+
+/* ───────── Discount code (checkout) ───────── */
+.receipt-discount-line .price-usd,
+.receipt-discount-line .price-ada { color: #1a7f37; }
+.receipt-discount-line .line-item-label { color: #1a7f37; font-weight: 600; }
+
+.discount-entry {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed rgba(0, 0, 0, 0.12);
+}
+.discount-entry-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.discount-entry-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+.discount-entry-row input {
+    flex: 1 1 auto;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    font: inherit;
+    text-transform: uppercase;
+}
+.discount-entry-row input:disabled { background: #f3f4f5; color: #555; }
+.discount-apply-btn {
+    flex: 0 0 auto;
+    padding: 8px 16px;
+    border: 0;
+    border-radius: 8px;
+    background: #2271b1;
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.discount-apply-btn:hover { background: #185a8f; }
+.discount-apply-btn:disabled { opacity: 0.6; cursor: default; }
+.discount-entry-status { margin-top: 6px; min-height: 1.1em; font-size: 12.5px; }
+.discount-entry-status.is-error { color: #b32d2e; }
+.discount-entry-status.is-success { color: #1a7f37; }

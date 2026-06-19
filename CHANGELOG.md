@@ -2,6 +2,21 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.5.0] - 2026-06-18
+
+Adds **discount codes** — e-commerce-style coupons for the mint checkout (phase 1: ADA path). See `docs/DISCOUNT_CODES_BUILD_PLAN.md`.
+
+### Added
+- **Discounts admin page** (top-level, under Cardano Mint). Create a *campaign* of codes scoped to a policy: pick the policy, a discount type (**% off** or **fixed $ off**), single- or multi-use, expiry, then generate either a **batch** of unique 8-char codes or **one shared code** (e.g. `VIPERS20`). Lists campaigns with code/redemption counts, a per-campaign detail view (codes + redemptions), pause/activate, disable-code, and CSV export. Gated by `manage_options` + nonces (no TOTP — DC-D6).
+- **"Have a code?" entry in the mint modal** (Step 2, ADA checkout). Validates live and rewrites the order summary with a green **Discount** line and adjusted total; the network/service fees and the 1 ADA receipt are never discounted.
+- **Three tables**: `wp_cm_discount_campaigns`, `wp_cm_discount_codes`, `wp_cm_discount_redemptions` (idempotent installer, JIT `maybe_install`).
+- **Server-authoritative pricing** (DC-D1): the code only reduces the MSRP component of the DB price at build time (`ajaxBuildMintTransaction`); the client never supplies a price. Because the +1 ADA/asset minting fee is added *after* the USD→ADA conversion, fees survive even a 100%-off code (DC-D2).
+- **Reserve → commit → release lifecycle** (DC-D4): a use is held at build, committed (atomically) at submit, and released by a 5-min sweeper cron if the checkout is abandoned — so a single-use code can't be double-spent or wasted.
+- **`cardano_discount_validate`** admin-ajax endpoint (nonce + per-IP rate limit) backing the live preview.
+
+### Notes
+- Phase 1 is the ADA path. Alt-pay (BTC/ETH/SOL) discounting at quote time is phase 2; BOGO is phase 3. The discount entry is hidden under alt-pay for now.
+
 ## [4.4.3] - 2026-06-15
 
 ### Changed

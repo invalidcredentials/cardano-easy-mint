@@ -587,6 +587,122 @@
     // line items in Step 2 are pre-rendered with per-unit values stored on
     // data-unit-usd / data-unit-ada attributes; this function multiplies them
     // by the current qty and rewrites the visible numbers + the running total.
+    // ───────── Discount code (customer) ─────────
+    // appliedDiscount holds the validated *rule* so the price preview can be
+    // recomputed at any quantity client-side. The server re-validates + reserves
+    // authoritatively at build time, so this is preview-only.
+    let appliedDiscount = null; // { code, type, percent, fixed, label }
+
+    function calcDiscountUsd(nftUsd) {
+        if (!appliedDiscount || nftUsd <= 0) return 0;
+        if (appliedDiscount.type === 'percent') return nftUsd * (appliedDiscount.percent / 100);
+        if (appliedDiscount.type === 'fixed')   return Math.min(appliedDiscount.fixed, nftUsd);
+        return 0;
+    }
+
+    // Renders the discount line off the NFT price component ONLY (the MSRP — fees
+    // are never discounted) and returns the {usd, ada} to subtract from totals.
+    function renderDiscountRow(qty) {
+        const row = document.getElementById('review-discount-row');
+        if (!row) return { usd: 0, ada: 0 };
+        if (!appliedDiscount) { row.style.display = 'none'; return { usd: 0, ada: 0 }; }
+        const usdEl = document.getElementById('review-nft-price-usd');
+        const adaEl = document.getElementById('review-nft-price-ada');
+        const unitUsd = usdEl ? (parseFloat(usdEl.dataset.unitUsd) || 0) : 0;
+        const unitAda = adaEl ? (parseFloat(adaEl.dataset.unitAda || (usdEl && usdEl.dataset.unitAda)) || 0) : 0;
+        const nftUsd = unitUsd * qty, nftAda = unitAda * qty;
+        const dUsd = calcDiscountUsd(nftUsd);
+        const dAda = nftUsd > 0 ? dUsd * (nftAda / nftUsd) : 0;
+        if (dUsd <= 0) { row.style.display = 'none'; return { usd: 0, ada: 0 }; }
+        row.style.display = '';
+        const lbl = document.getElementById('review-discount-label');
+        const du = document.getElementById('review-discount-usd');
+        const da = document.getElementById('review-discount-ada');
+        if (lbl) lbl.textContent = 'Discount (' + appliedDiscount.code + ')';
+        if (du) du.textContent = '-$' + dUsd.toFixed(2) + ' USD';
+        if (da) da.textContent = '-' + dAda.toFixed(2) + ' ADA';
+        return { usd: dUsd, ada: dAda };
+    }
+
+    async function applyDiscountCode() {
+        const input  = document.getElementById('discount-code-input');
+        const status = document.getElementById('discount-status');
+        const btn    = document.getElementById('discount-apply-btn');
+        if (!input || !status || !btn) return;
+
+        // Acting as "Remove" when a code is already applied.
+        if (appliedDiscount) {
+            appliedDiscount = null;
+            const applied = document.getElementById('discount-code-applied');
+            const rid = document.getElementById('discount-redemption-id');
+            if (applied) applied.value = '';
+            if (rid) rid.value = '';
+            input.disabled = false; input.value = '';
+            btn.textContent = 'Apply';
+            status.className = 'discount-entry-status'; status.textContent = '';
+            recomputeReviewTotals();
+            return;
+        }
+
+        const code = (input.value || '').trim().toUpperCase();
+        if (!code) { status.className = 'discount-entry-status is-error'; status.textContent = 'Enter a code.'; return; }
+
+        const mintButton = document.getElementById('cardano-mint-now-btn');
+        const assetId = mintButton ? mintButton.getAttribute('data-mint-id') : '';
+        const qtyInput = document.getElementById('qty-input');
+        const qty = qtyInput ? Math.max(1, Math.min(5, parseInt(qtyInput.value, 10) || 1)) : 1;
+
+        status.className = 'discount-entry-status'; status.textContent = 'Checking…';
+        btn.disabled = true;
+        try {
+            const fd = new FormData();
+            fd.append('action', 'cardano_discount_validate');
+            fd.append('nonce', cardanoMint.nonce);
+            fd.append('code', code);
+            fd.append('asset_id', assetId);
+            fd.append('quantity', String(qty));
+            fd.append('payment_method', 'ada');
+            const r = await fetch(cardanoMint.ajaxurl, { method: 'POST', body: fd });
+            const res = await r.json();
+            btn.disabled = false;
+            if (!res.success) {
+                status.className = 'discount-entry-status is-error';
+                status.textContent = (res.data && res.data.message) || 'That code isn\'t valid.';
+                return;
+            }
+            appliedDiscount = {
+                code:    res.data.code,
+                type:    res.data.discount_type,
+                percent: parseFloat(res.data.percent_off) || 0,
+                fixed:   parseFloat(res.data.fixed_off_usd) || 0,
+                label:   res.data.label
+            };
+            const applied = document.getElementById('discount-code-applied');
+            if (applied) applied.value = appliedDiscount.code;
+            input.disabled = true; input.value = appliedDiscount.code;
+            btn.textContent = 'Remove';
+            status.className = 'discount-entry-status is-success';
+            status.textContent = '✓ ' + appliedDiscount.label + ' applied';
+            recomputeReviewTotals();
+        } catch (e) {
+            btn.disabled = false;
+            status.className = 'discount-entry-status is-error';
+            status.textContent = 'Network error. Try again.';
+        }
+    }
+
+    // Bind once via delegation so it works no matter when Step 2 renders.
+    (function bindDiscountUI() {
+        if (window.__cmDiscountBound) return;
+        window.__cmDiscountBound = true;
+        document.addEventListener('click', function (e) {
+            if (e.target && e.target.id === 'discount-apply-btn') { e.preventDefault(); applyDiscountCode(); }
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && e.target && e.target.id === 'discount-code-input') { e.preventDefault(); applyDiscountCode(); }
+        });
+    })();
+
     function recomputeReviewTotals() {
         if (isAltPayActive()) return; // alt-pay overlay owns the receipt
         const qtyInput = document.getElementById('qty-input');
@@ -631,6 +747,11 @@
             totalAda += netAda;
         }
 
+        // Apply any validated discount to the NFT price component, then total.
+        const disc = renderDiscountRow(qty);
+        totalUsd = Math.max(0, totalUsd - disc.usd);
+        totalAda = Math.max(0, totalAda - disc.ada);
+
         const totUsdEl = document.getElementById('review-total-usd');
         const totAdaEl = document.getElementById('review-total-ada');
         if (totUsdEl) totUsdEl.textContent = fmtUsd(totalUsd);
@@ -653,13 +774,17 @@
         if (!dec || !inc || !inp) return;
 
         // Visibility/qty pin for alt-pay (re-checked on every Step 2 entry).
+        // Discount entry is ADA-only in v1, so it hides under alt-pay too.
+        const discEntry = document.getElementById('discount-entry');
         if (isAltPayActive()) {
             inp.value = '1';
             if (row)  row.style.display = 'none';
             if (hint) hint.style.display = 'none';
+            if (discEntry) discEntry.style.display = 'none';
         } else {
             if (row)  row.style.display = '';
             if (hint) hint.style.display = '';
+            if (discEntry) discEntry.style.display = '';
         }
 
         if (dec.dataset.bound) return;
@@ -1337,6 +1462,12 @@
             formData.append('invoice_id', altpayInvoiceField.value);
         }
 
+        // Discount code (ADA path). Server re-validates + reserves and returns
+        // the redemption id, which we stash for the submit step to commit.
+        if (appliedDiscount && appliedDiscount.code && !(altpayInvoiceField && altpayInvoiceField.value)) {
+            formData.append('discount_code', appliedDiscount.code);
+        }
+
         // DEBUG: Log FormData contents
         console.log('=== FORM DATA BEING SENT ===');
         for (let pair of formData.entries()) {
@@ -1362,6 +1493,12 @@
 
         if (!result.success) {
             throw new Error(result.data?.message || 'Failed to build mint transaction');
+        }
+
+        // Stash the discount reservation id for the submit step to commit.
+        if (result.data && result.data.discount_redemption_id) {
+            const ridEl = document.getElementById('discount-redemption-id');
+            if (ridEl) ridEl.value = result.data.discount_redemption_id;
         }
 
         return result.data;
@@ -1391,14 +1528,20 @@
         if (altpayInvoiceFieldSubmit && altpayInvoiceFieldSubmit.value) {
             formData.append('invoice_id', altpayInvoiceFieldSubmit.value);
         }
-        
+
+        // Commit the discount reservation (if any) now that the tx is signed.
+        const ridElSubmit = document.getElementById('discount-redemption-id');
+        if (ridElSubmit && ridElSubmit.value) {
+            formData.append('discount_redemption_id', ridElSubmit.value);
+        }
+
         const response = await fetch(cardanoMint.ajaxurl, {
             method: 'POST',
             body: formData
         });
-        
+
         const result = await response.json();
-        
+
         if (!result.success) {
             throw new Error(result.data?.message || 'Failed to submit mint transaction');
         }
