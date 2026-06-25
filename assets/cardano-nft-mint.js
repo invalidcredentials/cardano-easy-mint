@@ -799,32 +799,33 @@
         inc.addEventListener('click', function () { setQty(parseInt(inp.value, 10) + 1); });
     }
 
-    // Initialize when DOM is loaded
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('MINT NOW script loaded and DOM ready');
-        console.log('Looking for MINT NOW button...');
-        const testBtn = document.getElementById('cardano-mint-now-btn');
-        console.log('Button found at DOM ready:', testBtn);
+    // This script is enqueued site-wide, but only ever needs to run on a page
+    // that actually renders the mint widget. Previously it ran its whole init —
+    // and spammed the console (and historically auto-connected a wallet) — on
+    // EVERY page. Gate on the mint widget's presence so non-mint pages (home,
+    // trade, account) are a silent no-op.
+    //
+    // We don't use Bricks anymore, so the old bricks:after:render hook and the
+    // 2s re-init fallback are gone — the mint shortcode is in the initial DOM.
+    function hasMintWidget() {
+        return !!(
+            document.getElementById('cardano-mint-now-btn') ||
+            document.getElementById('connect-wallet-btn') ||
+            document.getElementById('cardano-nft-mint-form')
+        );
+    }
+
+    function bootMint() {
+        if (!hasMintWidget()) return; // silent no-op off the mint page
         initializeNFTMint();
         setupQuantityStepper();
-    });
+    }
 
-    // Re-initialize when Bricks finishes rendering
-    document.addEventListener('bricks:after:render', function() {
-        console.log('Bricks render complete, re-initializing...');
-        console.log('Looking for MINT NOW button after Bricks render...');
-        const testBtn = document.getElementById('cardano-mint-now-btn');
-        console.log('Button found after Bricks render:', testBtn);
-        initializeNFTMint();
-    });
-
-    // Fallback: Re-initialize periodically for Bricks compatibility
-    setTimeout(function() {
-        console.log('Fallback timeout triggered - checking for button...');
-        const testBtn = document.getElementById('cardano-mint-now-btn');
-        console.log('Button found at timeout:', testBtn);
-        initializeNFTMint();
-    }, 2000);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootMint);
+    } else {
+        bootMint();
+    }
 
     // Global event delegation - only set up once
     let eventDelegationSetup = false;
@@ -947,7 +948,15 @@
             console.log('Connect wallet button not found, returning');
             return;
         }
-        
+
+        // One-shot: initializeNFTMint() fires on DOMContentLoaded, on a (now dead)
+        // bricks:after:render event, AND on a blind 2s setTimeout. Without this guard
+        // the connect/proceed click handlers below were bound 2-3x — so a single click
+        // fired multiple connect attempts (the "looped so many times connecting") and
+        // the state subscription stacked. Wire the mint connector exactly once.
+        if (initializeWalletConnection._wired) return;
+        initializeWalletConnection._wired = true;
+
         console.log('Connect wallet button found, setting up event listener');
         
         // Initialize CIP-30 wallet system
@@ -969,10 +978,16 @@
     
         // Wallet detection and display names handled by embedded CardanoMintWallet
         
-        // ── Weld-based wallet connection ──
-
-        // Try to reconnect to last used wallet on page load
-        CardanoMintWallet.tryReconnect();
+        // ── Wallet connection (the global site nav owns connection) ──
+        //
+        // Do NOT auto-reconnect this plugin's own vendored connector on page load.
+        // The old tryReconnect() ran on every page the mint markup lands on (it is no
+        // longer gated by Bricks — we don't use Bricks anymore — and stale page cache
+        // can carry the form onto other pages), reconnecting its OWN last wallet and
+        // hijacking whatever the user picked in the nav. On a preprod-configured local
+        // it also thrashed against mainnet wallets (network mismatch), which is why it
+        // was invisible on prod. Connection now happens ONLY when the user explicitly
+        // clicks "Connect Wallet" in the mint flow.
 
         // Subscribe to wallet state changes — update UI automatically
         CardanoMintWallet.subscribe(function(state) {

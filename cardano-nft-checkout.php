@@ -451,6 +451,18 @@ add_action('wp_enqueue_scripts', function() {
             true
         );
 
+        // WeldPress bridge: makes the nav's disconnect clear the mint connector's
+        // saved wallet too, and clears any stale key at load. Site-wide (it must
+        // run on every page to catch a disconnect from anywhere), no jQuery dep.
+        $bridge_js_path = plugin_dir_path(__FILE__) . 'assets/weldpress-bridge.js';
+        wp_enqueue_script(
+            'cardano-mint-weldpress-bridge',
+            plugin_dir_url(__FILE__) . 'assets/weldpress-bridge.js',
+            [],
+            file_exists($bridge_js_path) ? filemtime($bridge_js_path) : '1.0.0',
+            true
+        );
+
         wp_enqueue_style('cardano-checkout-css', plugin_dir_url(__FILE__) . 'assets/cardano-checkout.css', [], file_exists($mint_css_path) ? filemtime($mint_css_path) : '1.0.0');
         
         // Localize script for AJAX
