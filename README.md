@@ -2,7 +2,7 @@
 
 **Mint Cardano NFTs from WordPress.** Native CIP-30 wallet connect, ADA / BTC / ETH / SOL / credit-card payments, discount codes, batch mints, and in-place metadata upgrades via burn and re-mint. Built on the [Ada Anvil](https://ada-anvil.io/) API with pure-PHP cryptography. No Composer, no native binaries, no wallet-connect plugin.
 
-**A Pb Project** · Open source under AGPL-3.0 · Version 4.5.3 · WordPress 5.0+ · PHP 7.4+
+**A Pb Project** · Open source under AGPL-3.0 · Version 4.6.0 · WordPress 5.0+ · PHP 7.4+
 
 ---
 
@@ -341,7 +341,7 @@ Generate the key and register the allowed origin on **Cardano Mint → Widget De
 
 ```
 cardano-easy-mint/
-├── cardano-nft-checkout.php           Plugin entry: setup page, menus, enqueues, cron, REST registration
+├── cardano-nft-checkout.php           Plugin entry: constants, requires, activation, menus, enqueues, cron
 ├── readme.txt                         WordPress.org-style readme
 ├── README.md / CHANGELOG.md / LICENSE
 ├── assets/
@@ -354,6 +354,7 @@ cardano-easy-mint/
 │   ├── asset-upgrade/                 Upgrade modal + admin (JS/CSS)
 │   └── js/cm-widget.js                Embeddable widget (Shadow DOM, zero deps)
 ├── includes/
+│   ├── admin/                         Plugin Setup, Mint Manager / Active Mints, How to Use pages + one-time migrations
 │   ├── controllers/
 │   │   ├── NFTCheckoutController.php  Mint modal AJAX, network gate, quantity validation, bulk JSON import, address-conversion proxy
 │   │   ├── PolicyWalletController.php Policy wallet generate / import
@@ -366,6 +367,7 @@ cardano-easy-mint/
 │   │   └── AssetUpgrade{Admin,Public}Controller.php
 │   ├── helpers/
 │   │   ├── AnvilAPI.php               Anvil client; quantity-aware buildMintTransaction
+│   │   ├── log.php                    cardanomint_log(): WP_DEBUG-gated logging
 │   │   ├── CardanoWalletPHP.php       BIP-39 / CIP-1852 wallet derivation (pure PHP)
 │   │   ├── CardanoTransactionSignerPHP.php  CBOR codec + Ed25519 extended-key signing
 │   │   ├── CardanoCLI.php             Thin facade over the pure-PHP signer and wallet generator
@@ -453,7 +455,7 @@ cardano-easy-mint/
 - Rarity weights across a collection should total 100.
 - Store the policy wallet seed offline, immediately.
 - Use HTTPS on any site that takes payments.
-- Keep `WP_DEBUG` off in production. The plugin logs a lot when it is on, including request payloads on admin actions.
+- Debug tracing (server log and browser console) only appears when `WP_DEBUG` is on, or when the `cardano_mint_debug_log` filter returns true. Keep it off in production.
 - CSV whitelist workflow: Export → edit in a spreadsheet → Import.
 - If you run WP-Cron via a real cron job, make sure the `cardano_altpay_minute` schedule fires; the watcher and the discount sweeper depend on it.
 
@@ -485,7 +487,7 @@ The distributable is the plugin folder zipped with `cardano-easy-mint/` as the t
 
 ```powershell
 # from the folder that contains cardano-easy-mint/
-& "C:\Program Files\7-Zip\7z.exe" a -tzip cardano-easy-mint-4.5.3.zip cardano-easy-mint\ `
+& "C:\Program Files\7-Zip\7z.exe" a -tzip cardano-easy-mint-4.6.0.zip cardano-easy-mint\ `
   -xr!.git -xr!.gitignore -xr!.distignore -xr!docs -xr!build -xr!*.zip
 ```
 
@@ -499,7 +501,7 @@ Issues and pull requests are welcome. A few pointers:
 
 - Read `docs/DECISIONS.md` before changing anything that looks deliberate. Locked decisions are there for a reason; supersede them with a new entry rather than quietly changing them.
 - Keep the crypto pure PHP. No Composer, no native binaries.
-- Every new AJAX or REST endpoint needs a nonce or key check and `$wpdb->prepare()`.
+- Every new AJAX or REST endpoint needs a nonce or key check and `$wpdb->prepare()`. Log through `cardanomint_log()`, never bare `error_log()`.
 - Test on preprod. Note the WordPress and PHP versions you tested on in the PR.
 - Add a `CHANGELOG.md` entry under the next version.
 

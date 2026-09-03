@@ -242,7 +242,7 @@ class GuardarianClient {
         // Always log the full response server-side so the operator can
         // diagnose validation failures from PHP error log instead of
         // having to reproduce them.
-        error_log('[CardanoMint Onramp] Guardarian ' . $method . ' ' . $path . ' -> ' . $code . ' : ' . $raw);
+        cardanomint_log('[CardanoMint Onramp] Guardarian ' . $method . ' ' . $path . ' -> ' . $code . ' : ' . $raw);
 
         return new \WP_Error('guardarian_' . $code_str, $msg, ['status' => $code, 'body' => $raw]);
     }

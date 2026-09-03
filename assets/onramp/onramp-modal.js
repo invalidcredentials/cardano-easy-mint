@@ -651,7 +651,7 @@
             .map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); })
             .join('&');
         var url = WIDGET_BASE_URL + '?' + qs;
-        try { console.log('[KGOnramp] widget URL:', url); } catch (_) {}
+        try { (window.cardanoMint && window.cardanoMint.debug) && console.log('[KGOnramp] widget URL:', url); } catch (_) {}
         return url;
     }
 
@@ -663,7 +663,7 @@
             try {
                 var origin = (e.origin || '').toLowerCase();
                 if (origin.indexOf('guardarian.com') === -1 && origin.indexOf('guardarian.') === -1) return;
-                console.log('[KGOnramp] postMessage from Guardarian:', e.data);
+                (window.cardanoMint && window.cardanoMint.debug) && console.log('[KGOnramp] postMessage from Guardarian:', e.data);
                 pollSessionStatus();
             } catch (_) {}
         };

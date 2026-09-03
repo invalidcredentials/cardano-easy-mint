@@ -22,9 +22,13 @@ namespace CardanoMintPay\Helpers;
 
 if (!defined('ABSPATH')) exit;
 
+// Load the Ed25519 compat layer BEFORE the class-exists guard: PHP binds the
+// class below at compile time, so the guard is already true when this file
+// executes and anything placed after it would be skipped.
+require_once __DIR__ . '/Ed25519Compat.php';
+
 if ( class_exists( __NAMESPACE__ . '\\CardanoWalletPHP', false ) ) return;
 
-require_once __DIR__ . '/Ed25519Compat.php';
 
 class CardanoWalletPHP
 {

@@ -2,6 +2,53 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.6.0] - 2026-09-03
+
+Cleanup release. No schema changes and no behaviour changes for customers or
+operators, plus one real bug fix that surfaced while verifying the cleanup.
+
+### Fixed
+- **Generating a policy wallet could fatal with `Class "Ed25519Compat" not found`.**
+  `CardanoWalletPHP.php` guarded itself with a class-exists check placed *before*
+  its own `require_once` of the Ed25519 compat layer. PHP binds the class at compile
+  time, so the guard was already true when the file ran and the require never
+  executed. It only worked when something earlier in the same request had loaded
+  the transaction signer (which loads the compat layer too). The require now comes
+  first. Verified on a live site: preprod and mainnet wallets generate with a
+  24-word mnemonic, addresses, and extended signing key.
+
+### Changed
+- **All server logging goes through `cardanomint_log()`** (`includes/helpers/log.php`).
+  Debug-level messages only reach the PHP error log when `WP_DEBUG` is on or the
+  `cardano_mint_debug_log` filter returns true; failure paths log at error level and
+  always appear. Four admin handlers that dumped the raw `$_POST` body to the log no
+  longer do.
+- **Browser console noise is gated the same way.** `cardano-nft-mint.js` routes its
+  tracing through `cmDebug()`, a no-op unless `WP_DEBUG` is on (localized as
+  `cardanoMint.debug`). `console.warn` / `console.error` are untouched.
+- **The plugin entry file is a third of its old size.** The Plugin Setup page, the
+  Mint Manager / Active Mints pages, the How to Use page, and the one-time
+  migrations moved verbatim into `includes/admin/`. Plugin paths resolve through
+  new `CARDANO_MINT_PLUGIN_DIR` / `_URL` / `_FILE` constants; `CARDANO_MINT_VERSION`
+  is defined as well.
+- `CardanoCLI` is now an honest 78-line facade over the pure-PHP signer and wallet
+  generator (its public signatures are unchanged).
+
+### Removed
+- `includes/helpers/WalletGenerator.php`: never referenced; its body was a placeholder.
+- The Deno-binary and Python fallbacks in `CardanoCLI`, the activation-time "fix
+  binary permissions" step, and two address helpers keyed to the old binary's
+  output format. Neither `bin/` nor `scripts/` ship with the plugin, so none of
+  those paths could ever succeed; wallet generation and signing were already pure
+  PHP and still are.
+- The unreachable client-side address-conversion fallbacks (a Cardano Serialization
+  Library path nothing loads, and a placeholder that fabricated an `addr1…` string).
+  If the server-side conversion fails, the raw address is passed through, which is
+  what the old chain ended up doing anyway.
+- The orphaned `cardano_get_connected_wallet` AJAX handler (the last CardanoPress
+  remnant) and the unauthenticated registration of the Anvil connectivity test
+  (`cardano_test_anvil_api` is admin-only now; only Plugin Setup ever called it).
+
 ## [4.5.3] - 2026-09-02
 
 Open-source release prep, plus one security fix.

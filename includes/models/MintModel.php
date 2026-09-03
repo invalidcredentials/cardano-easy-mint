@@ -109,7 +109,7 @@ class MintModel {
             $wpdb->query("ALTER TABLE $table ADD COLUMN archived tinyint(1) NOT NULL DEFAULT 0 AFTER network");
             $wpdb->query("ALTER TABLE $table ADD COLUMN archived_at datetime AFTER archived");
             $wpdb->query("ALTER TABLE $table ADD INDEX idx_archived (archived)");
-            error_log("Cardano Mint: Added 'archived' columns to policy wallets table");
+            cardanomint_log("Cardano Mint: Added 'archived' columns to policy wallets table");
         }
 
         // Add source column if it doesn't exist (migration for advanced import)
@@ -118,7 +118,7 @@ class MintModel {
             $wpdb->query("ALTER TABLE $table ADD COLUMN source varchar(20) NOT NULL DEFAULT 'generated' AFTER archived_at");
             $wpdb->query("ALTER TABLE $table MODIFY COLUMN mnemonic_encrypted TEXT DEFAULT NULL");
             $wpdb->query("ALTER TABLE $table MODIFY COLUMN payment_address varchar(128) DEFAULT ''");
-            error_log("Cardano Mint: Added 'source' column and made mnemonic_encrypted nullable");
+            cardanomint_log("Cardano Mint: Added 'source' column and made mnemonic_encrypted nullable");
         }
     }
 
@@ -174,19 +174,19 @@ class MintModel {
         $col1 = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'preview_image_id'");
         if (empty($col1)) {
             $r = $wpdb->query("ALTER TABLE $table ADD COLUMN preview_image_id int(11) unsigned DEFAULT NULL");
-            if ($r === false) error_log('[CardanoMint] add preview_image_id FAILED: ' . $wpdb->last_error);
+            if ($r === false) cardanomint_log('[CardanoMint] add preview_image_id FAILED: ' . $wpdb->last_error);
         }
 
         $col2 = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'preview_ipfs_cid_manual'");
         if (empty($col2)) {
             $r = $wpdb->query("ALTER TABLE $table ADD COLUMN preview_ipfs_cid_manual varchar(60) DEFAULT NULL");
-            if ($r === false) error_log('[CardanoMint] add preview_ipfs_cid_manual FAILED: ' . $wpdb->last_error);
+            if ($r === false) cardanomint_log('[CardanoMint] add preview_ipfs_cid_manual FAILED: ' . $wpdb->last_error);
         }
 
         $col3 = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'preview_media_type'");
         if (empty($col3)) {
             $r = $wpdb->query("ALTER TABLE $table ADD COLUMN preview_media_type varchar(50) DEFAULT NULL");
-            if ($r === false) error_log('[CardanoMint] add preview_media_type FAILED: ' . $wpdb->last_error);
+            if ($r === false) cardanomint_log('[CardanoMint] add preview_media_type FAILED: ' . $wpdb->last_error);
         }
 
         // Asset mime override — same idea as preview_media_type, but for
@@ -196,7 +196,7 @@ class MintModel {
         $col4 = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'media_type'");
         if (empty($col4)) {
             $r = $wpdb->query("ALTER TABLE $table ADD COLUMN media_type varchar(50) DEFAULT NULL");
-            if ($r === false) error_log('[CardanoMint] add media_type FAILED: ' . $wpdb->last_error);
+            if ($r === false) cardanomint_log('[CardanoMint] add media_type FAILED: ' . $wpdb->last_error);
         }
     }
 
@@ -287,7 +287,7 @@ class MintModel {
         $archived_exists = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'archived'");
         if (empty($archived_exists)) {
             $wpdb->query("ALTER TABLE $table ADD COLUMN archived tinyint(1) NOT NULL DEFAULT 0 AFTER status");
-            error_log("Cardano Mint: Added 'archived' column to active mints table");
+            cardanomint_log("Cardano Mint: Added 'archived' column to active mints table");
         }
 
         // Add metadata_mode column. NULL/'' = normal (form-built, CIP-25
@@ -309,7 +309,7 @@ class MintModel {
         $archived_index = $wpdb->get_results("SHOW INDEX FROM $table WHERE Key_name = 'idx_archived'");
         if (empty($archived_index)) {
             $wpdb->query("ALTER TABLE $table ADD INDEX idx_archived (archived)");
-            error_log("Cardano Mint: Added index on 'archived' column");
+            cardanomint_log("Cardano Mint: Added index on 'archived' column");
         }
     }
 
@@ -354,8 +354,8 @@ class MintModel {
 
         $insert_result = $wpdb->insert($table, $insertData);
         if ($insert_result === false) {
-            error_log('[CardanoMint] insert_active_mint FAILED. last_error=' . $wpdb->last_error);
-            error_log('[CardanoMint] insert payload keys=' . implode(',', array_keys($insertData)));
+            cardanomint_log('[CardanoMint] insert_active_mint FAILED. last_error=' . $wpdb->last_error, 'error');
+            cardanomint_log('[CardanoMint] insert payload keys=' . implode(',', array_keys($insertData)));
         }
         $insertId = $wpdb->insert_id;
 
@@ -394,7 +394,7 @@ class MintModel {
                 (string) $currentAsset['policyid']
             ));
             if ($result === false) {
-                error_log('[CardanoMint] verbatim price cascade FAILED. id=' . $id . ' last_error=' . $wpdb->last_error);
+                cardanomint_log('[CardanoMint] verbatim price cascade FAILED. id=' . $id . ' last_error=' . $wpdb->last_error, 'error');
             }
             return $result;
         }
@@ -429,14 +429,14 @@ class MintModel {
         // Update the specific asset
         $result = $wpdb->update($table, $updateData, ['id' => $id]);
         if ($result === false) {
-            error_log('[CardanoMint] update_active_mint FAILED. id=' . $id . ' last_error=' . $wpdb->last_error);
-            error_log('[CardanoMint] update payload keys=' . implode(',', array_keys($updateData)));
+            cardanomint_log('[CardanoMint] update_active_mint FAILED. id=' . $id . ' last_error=' . $wpdb->last_error, 'error');
+            cardanomint_log('[CardanoMint] update payload keys=' . implode(',', array_keys($updateData)));
         }
 
         // If this is variant A, cascade policy-level changes to all other variants
         $currentAsset = self::getMintById($id);
         if ($currentAsset && $currentAsset['variant'] === 'A') {
-            error_log("Variant A updated - cascading policy-level changes to all variants with policy: " . $currentAsset['policyid']);
+            cardanomint_log("Variant A updated - cascading policy-level changes to all variants with policy: " . $currentAsset['policyid']);
 
             // Policy-level fields that should cascade to all variants
             $policyLevelUpdates = [
@@ -488,7 +488,7 @@ class MintModel {
                 )
             );
 
-            error_log("Policy-level updates cascaded to all variants with policy ID: " . $currentAsset['policyid']);
+            cardanomint_log("Policy-level updates cascaded to all variants with policy ID: " . $currentAsset['policyid']);
         }
 
         return $result;
@@ -660,7 +660,7 @@ class MintModel {
         $activeMintsTable = self::get_active_mints_table();
         $mintCountsTable = self::get_mint_counts_table();
 
-        error_log("checkMintLimits called with policyId: " . $policyId . ", wallet: " . $wallet);
+        cardanomint_log("checkMintLimits called with policyId: " . $policyId . ", wallet: " . $wallet);
 
         // Fetch mint configuration
         $mintConfig = $wpdb->get_row(
@@ -671,10 +671,10 @@ class MintModel {
             ARRAY_A
         );
 
-        error_log("Mint config query result: " . print_r($mintConfig, true));
+        cardanomint_log("Mint config query result: " . print_r($mintConfig, true));
 
         if (!$mintConfig) {
-            error_log("No mint configuration found for policy: " . $policyId);
+            cardanomint_log("No mint configuration found for policy: " . $policyId);
             return [
                 'success' => false,
                 'error' => 'Mint configuration not found for this policy.'
@@ -684,17 +684,17 @@ class MintModel {
         $perWalletLimit = intval($mintConfig['mintsallowedperwallet'] ?? 0);
         $isUnlimited = intval($mintConfig['unlimited'] ?? 0) == 1;
 
-        error_log("perWalletLimit: " . $perWalletLimit . ", isUnlimited: " . ($isUnlimited ? 'true' : 'false'));
+        cardanomint_log("perWalletLimit: " . $perWalletLimit . ", isUnlimited: " . ($isUnlimited ? 'true' : 'false'));
 
         // If unlimited mints are allowed, skip per-wallet limit check
         if ($isUnlimited) {
-            error_log("Unlimited mints enabled, skipping per-wallet limit check");
+            cardanomint_log("Unlimited mints enabled, skipping per-wallet limit check");
             return ['success' => true];
         }
 
         // If no per-wallet limit is set, allow unlimited mints per wallet
         if ($perWalletLimit <= 0) {
-            error_log("No per-wallet limit set, allowing unlimited mints per wallet");
+            cardanomint_log("No per-wallet limit set, allowing unlimited mints per wallet");
             return ['success' => true];
         }
 

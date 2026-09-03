@@ -1,6 +1,13 @@
 // Cardano NFT Minting JavaScript
 (function() {
     'use strict';
+
+    // Debug tracing. console.log noise only appears when WP_DEBUG is on (localized
+    // as cardanoMint.debug); console.warn / console.error are always emitted.
+    var CM_DEBUG = !!(window.cardanoMint && window.cardanoMint.debug);
+    function cmDebug() {
+        if (CM_DEBUG && window.console && console.log) { console.log.apply(console, arguments); }
+    }
     
         // Variables for NFT minting (scoped to this function)
         let mintWallet = null;
@@ -281,38 +288,6 @@
             };
         })();
 
-        // Simple CBOR-to-Bech32 conversion function (improved implementation)
-        async function simpleCborToBech32(cborAddress) {
-            try {
-                // Remove any '0x' prefix
-                const hexString = cborAddress.startsWith('0x') ? cborAddress.slice(2) : cborAddress;
-
-                // Basic validation - should be even length hex string
-                if (hexString.length % 2 !== 0) {
-                    throw new Error('Invalid hex string length');
-                }
-
-                // For CBOR-encoded addresses, we need to handle them differently
-                // Instead of trying to convert to Bech32, let's use the raw address
-                // and let the backend handle the conversion
-                
-                // Check if this looks like a CBOR-encoded address (starts with 01)
-                if (hexString.startsWith('01')) {
-                    // This is likely a CBOR-encoded address, return as-is for backend processing
-                    console.log('Detected CBOR-encoded address, using raw format for backend processing');
-                    return cborAddress; // Return original with 0x prefix if it had one
-                }
-
-                // For other formats, try to create a proper Bech32 address
-                // This is a very basic implementation - for production, use proper CBOR decoding
-                return `addr1${hexString.substring(0, 20)}...${hexString.substring(hexString.length - 20)}`;
-
-            } catch (error) {
-                console.error('Simple CBOR conversion error:', error);
-                return null;
-            }
-        }
-
         // Helper function to convert a CBOR-encoded address to Bech32. The call goes
         // through the plugin's own AJAX proxy (cardano_convert_address) so the Anvil
         // API key stays on the server and is never shipped to the browser.
@@ -324,8 +299,8 @@
                 }
 
                 if (!window.cardanoMint || !window.cardanoMint.ajaxurl || !window.cardanoMint.nonce) {
-                    console.warn('cardanoMint config missing; using fallback address conversion');
-                    return convertCborToBech32Fallback(cborAddress);
+                    console.warn('cardanoMint config missing; passing the raw address through');
+                    return cborAddress;
                 }
 
                 const fd = new FormData();
@@ -345,106 +320,35 @@
                 throw new Error((data && data.data && data.data.message) || 'No address returned from conversion proxy');
 
             } catch (error) {
-                console.warn('Server-side address conversion failed:', error);
-                return await convertCborToBech32Fallback(cborAddress);
-            }
-        }
-        
-        // Fallback function using Cardano Serialization Library
-        async function convertCborToBech32Fallback(cborAddress) {
-            try {
-                // Check if Cardano Serialization Library is available
-                if (typeof CardanoSerializationLib !== 'undefined') {
-                    try {
-                        console.log('Using Cardano Serialization Library for conversion');
-                        
-                        // Load the library if needed
-                        if (CardanoSerializationLib.load) {
-                            await CardanoSerializationLib.load();
-                        }
-                        
-                        // Convert hex string to bytes
-                        const hexString = cborAddress.startsWith('0x') ? cborAddress.slice(2) : cborAddress;
-                        const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-                        
-                        // Convert to Bech32 using Cardano Serialization Library
-                        const address = CardanoSerializationLib.Address.from_bytes(bytes);
-                        const bech32Address = address.to_bech32();
-                        
-                        console.log('Successfully converted CBOR to Bech32 (fallback):', cborAddress, '->', bech32Address);
-                        return bech32Address;
-                        
-                    } catch (e) {
-                        console.warn('Cardano Serialization Library conversion failed:', e);
-                    }
-                } else if (typeof Cardano !== 'undefined' && Cardano.Address) {
-                    try {
-                        console.log('Using legacy Cardano library for conversion');
-                        
-                        // Convert hex string to bytes
-                        const hexString = cborAddress.startsWith('0x') ? cborAddress.slice(2) : cborAddress;
-                        const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-                        
-                        // Convert to Bech32 using Cardano Serialization Library
-                        const address = Cardano.Address.from_bytes(bytes);
-                        const bech32Address = address.to_bech32();
-                        
-                        console.log('Successfully converted CBOR to Bech32 (legacy):', cborAddress, '->', bech32Address);
-                        return bech32Address;
-                        
-                    } catch (e) {
-                        console.warn('Legacy Cardano library conversion failed:', e);
-                    }
-                } else {
-                    console.warn('Cardano Serialization Library not available');
-                }
-                
-                // Try simple CBOR-to-Bech32 conversion without external libraries
-                try {
-                    console.log('Attempting simple CBOR-to-Bech32 conversion');
-                    const bech32Address = await simpleCborToBech32(cborAddress);
-                    if (bech32Address) {
-                        console.log('Successfully converted via simple method:', cborAddress, '->', bech32Address);
-                        return bech32Address;
-                    }
-                } catch (e) {
-                    console.warn('Simple CBOR-to-Bech32 conversion failed:', e);
-                }
-                
-                // Final fallback: return truncated version for display
-                console.warn('Using truncated CBOR address for display');
-                return cborAddress.substring(0, 20) + '...' + cborAddress.substring(cborAddress.length - 20);
-                
-            } catch (error) {
-                console.error('Error in fallback address conversion:', error);
+                console.warn('Server-side address conversion failed, passing the raw address through:', error);
                 return cborAddress;
             }
         }
-
+        
         // Helper function to get any address from the wallet (CBOR or Bech32)
         async function getAnyAddress(walletAPI) {
             try {
-                console.log('=== GETTING WALLET ADDRESS ===');
-                console.log('Wallet API object:', walletAPI);
+                cmDebug('=== GETTING WALLET ADDRESS ===');
+                cmDebug('Wallet API object:', walletAPI);
 
                 // Method 1: Try getChangeAddress first
                 try {
-                    console.log('Attempting getChangeAddress...');
+                    cmDebug('Attempting getChangeAddress...');
                     const address = await walletAPI.getChangeAddress();
-                    console.log('getChangeAddress returned:', address);
-                    console.log('Address type:', typeof address);
-                    console.log('Address length:', address ? address.length : 'null');
+                    cmDebug('getChangeAddress returned:', address);
+                    cmDebug('Address type:', typeof address);
+                    cmDebug('Address length:', address ? address.length : 'null');
 
                     if (address) {
                         // For CBOR-encoded addresses, convert to Bech32 first
                         if (address.startsWith('01') || address.startsWith('0x01')) {
-                            console.log('CBOR address detected, converting to Bech32:', address);
+                            cmDebug('CBOR address detected, converting to Bech32:', address);
                             const convertedAddress = await convertCborToBech32ViaAnvil(address);
-                            console.log('Converted to Bech32:', convertedAddress);
+                            cmDebug('Converted to Bech32:', convertedAddress);
                             return convertedAddress;
                         } else {
                             // For already Bech32 addresses, use as-is
-                            console.log('Bech32 address detected, using as-is:', address);
+                            cmDebug('Bech32 address detected, using as-is:', address);
                             return address;
                         }
                     }
@@ -455,17 +359,17 @@
                 // Method 2: Try getUsedAddresses
                 try {
                     const usedAddresses = await walletAPI.getUsedAddresses();
-                    console.log('Method 2 - getUsedAddresses:', usedAddresses);
+                    cmDebug('Method 2 - getUsedAddresses:', usedAddresses);
                     
                     if (usedAddresses && usedAddresses.length > 0) {
                         const address = usedAddresses[0];
                         if (address.startsWith('01') || address.startsWith('0x01')) {
-                            console.log('Converting CBOR used address to Bech32:', address);
+                            cmDebug('Converting CBOR used address to Bech32:', address);
                             const convertedAddress = await convertCborToBech32ViaAnvil(address);
-                            console.log('Converted used address:', convertedAddress);
+                            cmDebug('Converted used address:', convertedAddress);
                             return convertedAddress;
                         } else {
-                            console.log('Using Bech32 used address as-is:', address);
+                            cmDebug('Using Bech32 used address as-is:', address);
                             return address;
                         }
                     }
@@ -476,17 +380,17 @@
                 // Method 3: Try getUnusedAddresses
                 try {
                     const unusedAddresses = await walletAPI.getUnusedAddresses();
-                    console.log('Method 3 - getUnusedAddresses:', unusedAddresses);
+                    cmDebug('Method 3 - getUnusedAddresses:', unusedAddresses);
                     
                     if (unusedAddresses && unusedAddresses.length > 0) {
                         const address = unusedAddresses[0];
                         if (address.startsWith('01') || address.startsWith('0x01')) {
-                            console.log('Converting CBOR unused address to Bech32:', address);
+                            cmDebug('Converting CBOR unused address to Bech32:', address);
                             const convertedAddress = await convertCborToBech32ViaAnvil(address);
-                            console.log('Converted unused address:', convertedAddress);
+                            cmDebug('Converted unused address:', convertedAddress);
                             return convertedAddress;
                         } else {
-                            console.log('Using Bech32 unused address as-is:', address);
+                            cmDebug('Using Bech32 unused address as-is:', address);
                             return address;
                         }
                     }
@@ -497,17 +401,17 @@
                 // Method 4: Try getRewardAddresses
                 try {
                     const rewardAddresses = await walletAPI.getRewardAddresses();
-                    console.log('Method 4 - getRewardAddresses:', rewardAddresses);
+                    cmDebug('Method 4 - getRewardAddresses:', rewardAddresses);
                     
                     if (rewardAddresses && rewardAddresses.length > 0) {
                         const address = rewardAddresses[0];
                         if (address.startsWith('01') || address.startsWith('0x01')) {
-                            console.log('Converting CBOR reward address to Bech32:', address);
+                            cmDebug('Converting CBOR reward address to Bech32:', address);
                             const convertedAddress = await convertCborToBech32ViaAnvil(address);
-                            console.log('Converted reward address:', convertedAddress);
+                            cmDebug('Converted reward address:', convertedAddress);
                             return convertedAddress;
                         } else {
-                            console.log('Using Bech32 reward address as-is:', address);
+                            cmDebug('Using Bech32 reward address as-is:', address);
                             return address;
                         }
                     }
@@ -789,45 +693,45 @@
         if (eventDelegationSetup) return;
         eventDelegationSetup = true;
         
-        console.log('Setting up event delegation for MINT NOW button');
+        cmDebug('Setting up event delegation for MINT NOW button');
         
         // Use event delegation - listen on document for clicks on the button
         // This works even if Bricks replaces the DOM
         document.addEventListener('click', function(e) {
-            console.log('Click detected on:', e.target, 'ID:', e.target.id, 'Classes:', e.target.className);
+            cmDebug('Click detected on:', e.target, 'ID:', e.target.id, 'Classes:', e.target.className);
             
             if (e.target && e.target.id === 'cardano-mint-now-btn') {
-                console.log('MINT NOW button clicked via delegation');
+                cmDebug('MINT NOW button clicked via delegation');
                 e.preventDefault();
                 openMintModal();
             }
             
             // Handle modal close button
             if (e.target && e.target.classList.contains('cardano-modal-close')) {
-                console.log('Modal close button clicked via delegation');
+                cmDebug('Modal close button clicked via delegation');
                 e.preventDefault();
                 closeMintModal();
             }
             
             // Handle modal background click
             if (e.target && e.target.id === 'cardano-nft-mint-modal') {
-                console.log('Modal background clicked via delegation');
+                cmDebug('Modal background clicked via delegation');
                 closeMintModal();
             }
         });
     }
 
     function initializeNFTMint() {
-        console.log('initializeNFTMint() called');
+        cmDebug('initializeNFTMint() called');
         
         // Set up event delegation if not already done
         setupEventDelegation();
 
         // Modal event handling is now done via delegation above
-        console.log('Modal event handling set up via delegation');
+        cmDebug('Modal event handling set up via delegation');
 
         // Initialize wallet connection
-        console.log('Initializing wallet connection...');
+        cmDebug('Initializing wallet connection...');
         initializeWalletConnection();
     }
 
@@ -842,7 +746,7 @@
     }
 
     function closeMintModal() {
-        console.log('closeMintModal() called');
+        cmDebug('closeMintModal() called');
         const modal = document.getElementById('cardano-nft-mint-modal');
         if (modal) {
             modal.style.display = 'none';
@@ -853,9 +757,9 @@
                 form.reset();
             }
             nextMintStep(1);
-            console.log('MINT NOW modal closed successfully');
+            cmDebug('MINT NOW modal closed successfully');
         } else {
-            console.log('MINT NOW modal not found when trying to close');
+            cmDebug('MINT NOW modal not found when trying to close');
         }
     }
 
@@ -889,7 +793,7 @@
     }
 
     function initializeWalletConnection() {
-        console.log('initializeWalletConnection() called');
+        cmDebug('initializeWalletConnection() called');
         
         const connectBtn = document.getElementById('connect-wallet-btn');
         const proceedBtn = document.getElementById('proceed-to-confirm');
@@ -900,7 +804,7 @@
         const walletInput = document.getElementById('wallet-address');
         
         if (!connectBtn) {
-            console.log('Connect wallet button not found, returning');
+            cmDebug('Connect wallet button not found, returning');
             return;
         }
 
@@ -912,22 +816,22 @@
         if (initializeWalletConnection._wired) return;
         initializeWalletConnection._wired = true;
 
-        console.log('Connect wallet button found, setting up event listener');
+        cmDebug('Connect wallet button found, setting up event listener');
         
         // Initialize CIP-30 wallet system
         initializeCIP30Wallet();
     
         function initializeCIP30Wallet() {
-            console.log('initializeCIP30Wallet() called');
-            console.log('window.cardanoMint exists:', !!window.cardanoMint);
+            cmDebug('initializeCIP30Wallet() called');
+            cmDebug('window.cardanoMint exists:', !!window.cardanoMint);
             if (window.cardanoMint) {
-                console.log('cardanoMint.debug:', window.cardanoMint.debug);
-                console.log('cardanoMint object:', window.cardanoMint);
+                cmDebug('cardanoMint.debug:', window.cardanoMint.debug);
+                cmDebug('cardanoMint object:', window.cardanoMint);
             }
             if (window.cardanoMint && window.cardanoMint.debug) {
-                console.log('CIP-30 wallet system initialized for minting');
+                cmDebug('CIP-30 wallet system initialized for minting');
             } else {
-                console.log('Debug mode not enabled, but CIP-30 system is ready');
+                cmDebug('Debug mode not enabled, but CIP-30 system is ready');
             }
         }
     
@@ -1096,7 +1000,7 @@
                 if (nameEl) nameEl.textContent = 'Connecting…';
             }
             try {
-                console.log('Connecting to:', key);
+                cmDebug('Connecting to:', key);
                 await CardanoMintWallet.connect(key);
                 var picker = document.getElementById('cm-wallet-picker');
                 if (picker) picker.remove();
@@ -1114,10 +1018,10 @@
 
         // Connect button — show wallet picker grid
         connectBtn.addEventListener('click', async function () {
-            console.log('Wallet connect button clicked');
+            cmDebug('Wallet connect button clicked');
 
             var installedWallets = CardanoMintWallet.getInstalledWallets();
-            console.log('Installed wallets:', installedWallets);
+            cmDebug('Installed wallets:', installedWallets);
 
             // Remove any stale picker
             var stale = document.getElementById('cm-wallet-picker');
@@ -1213,18 +1117,18 @@
                     const hiddenPriceField = document.getElementById('nft-price');
                     const hiddenPriceValue = hiddenPriceField?.value;
                     const buttonPriceValue = mintButton?.dataset.nftPrice;
-                    console.log('DEBUG Price Sources:');
-                    console.log('  - Hidden field value:', hiddenPriceValue);
-                    console.log('  - Button data-nft-price:', buttonPriceValue);
+                    cmDebug('DEBUG Price Sources:');
+                    cmDebug('  - Hidden field value:', hiddenPriceValue);
+                    cmDebug('  - Button data-nft-price:', buttonPriceValue);
 
                     const mintPrice = parseFloat(hiddenPriceValue || buttonPriceValue || '0');
 
-                    console.log('=== MINT TRANSACTION DATA ===');
-                    console.log('Merchant Address:', merchantAddress);
-                    console.log('Customer Address:', mintWallet.changeAddress);
-                    console.log('Price (USD):', mintPrice);
-                    console.log('Policy ID:', policyId);
-                    console.log('============================');
+                    cmDebug('=== MINT TRANSACTION DATA ===');
+                    cmDebug('Merchant Address:', merchantAddress);
+                    cmDebug('Customer Address:', mintWallet.changeAddress);
+                    cmDebug('Price (USD):', mintPrice);
+                    cmDebug('Policy ID:', policyId);
+                    cmDebug('============================');
                     
                     // Validate merchant address exists
                     if (!merchantAddress || merchantAddress.trim() === '') {
@@ -1232,8 +1136,8 @@
                     }
                     
                     // Step 1: Build mint transaction
-                    console.log('Building mint transaction...');
-                    console.log('Calling buildMintTransaction with price:', mintPrice);
+                    cmDebug('Building mint transaction...');
+                    cmDebug('Calling buildMintTransaction with price:', mintPrice);
                     const qtyInputEl = document.getElementById('qty-input');
                     const mintQty    = qtyInputEl ? parseInt(qtyInputEl.value, 10) || 1 : 1;
                     const buildData = await buildMintTransaction(
@@ -1249,12 +1153,12 @@
                     }
                     
                     // Step 2: Sign transaction
-                    console.log('Please sign the transaction in your wallet...');
-                    console.log('[CardanoMint] buildData FULL:', JSON.parse(JSON.stringify(buildData || {})));
+                    cmDebug('Please sign the transaction in your wallet...');
+                    cmDebug('[CardanoMint] buildData FULL:', JSON.parse(JSON.stringify(buildData || {})));
                     if (buildData && buildData.complete) {
                         var txHex = buildData.complete;
-                        console.log('[CardanoMint] tx CBOR length:', txHex.length);
-                        console.log('[CardanoMint] tx CBOR (paste into a decoder):\n', txHex);
+                        cmDebug('[CardanoMint] tx CBOR length:', txHex.length);
+                        cmDebug('[CardanoMint] tx CBOR (paste into a decoder):\n', txHex);
                     } else {
                         console.warn('[CardanoMint] no `complete` field on buildData', buildData);
                     }
@@ -1273,7 +1177,7 @@
                     
                     // Step 3: Submit transaction (only if we have a signature)
                     if (signature) {
-                        console.log('Submitting mint transaction...');
+                        cmDebug('Submitting mint transaction...');
 
                         // Build signatures array: Anvil's policy witness + user's wallet signature
                         const signatures = [];
@@ -1281,13 +1185,13 @@
                         // Add Anvil's policy script witness if available (REQUIRED for minting!)
                         if (buildData.witnessSet) {
                             signatures.push(buildData.witnessSet);
-                            console.log('Added policy script witness from Anvil');
+                            cmDebug('Added policy script witness from Anvil');
                         }
 
                         // Add user's wallet signature
                         signatures.push(signature);
-                        console.log('Added user wallet signature');
-                        console.log('Total signatures:', signatures.length);
+                        cmDebug('Added user wallet signature');
+                        cmDebug('Total signatures:', signatures.length);
 
                         const submitResult = await submitMintTransaction(
                             buildData.complete,
@@ -1328,7 +1232,7 @@
                         nextMintStep(3);
                     } else {
                         // If no signature but no error, assume transaction was already processed
-                        console.log('Transaction may have been processed by wallet directly');
+                        cmDebug('Transaction may have been processed by wallet directly');
                         const txHashElement = document.getElementById('mint-tx-hash');
                         if (txHashElement) {
                             txHashElement.textContent = 'Processed by wallet';
@@ -1404,16 +1308,16 @@
             throw new Error('Policy ID is required');
         }
         
-        console.log('✅ All validations passed! Building transaction...');
-        console.log('Merchant:', merchantAddress);
-        console.log('Customer:', customerAddress);
-        console.log('Price:', usdPrice);
-        console.log('Policy:', policyId);
+        cmDebug('✅ All validations passed! Building transaction...');
+        cmDebug('Merchant:', merchantAddress);
+        cmDebug('Customer:', customerAddress);
+        cmDebug('Price:', usdPrice);
+        cmDebug('Policy:', policyId);
 
         // Get asset ID from the button data attribute
         const mintButton = document.getElementById('cardano-mint-now-btn');
         const assetId = mintButton ? mintButton.getAttribute('data-mint-id') : '';
-        console.log('Asset ID:', assetId);
+        cmDebug('Asset ID:', assetId);
 
         const formData = new FormData();
         formData.append('action', 'cardano_build_mint_transaction');
@@ -1440,11 +1344,11 @@
         }
 
         // DEBUG: Log FormData contents
-        console.log('=== FORM DATA BEING SENT ===');
+        cmDebug('=== FORM DATA BEING SENT ===');
         for (let pair of formData.entries()) {
-            console.log(pair[0] + ': ' + pair[1]);
+            cmDebug(pair[0] + ': ' + pair[1]);
         }
-        console.log('============================');
+        cmDebug('============================');
 
         const response = await fetch(cardanoMint.ajaxurl, {
             method: 'POST',
@@ -1454,13 +1358,13 @@
         const result = await response.json();
 
         // DEBUG: Log response from PHP
-        console.log('=== PHP RESPONSE ===');
-        console.log('Success:', result.success);
+        cmDebug('=== PHP RESPONSE ===');
+        cmDebug('Success:', result.success);
         if (result.data && result.data.debug_price_info) {
-            console.log('PHP received usd_price:', result.data.debug_price_info.usd_price_received);
-            console.log('Raw POST price:', result.data.debug_price_info.raw_post_price);
+            cmDebug('PHP received usd_price:', result.data.debug_price_info.usd_price_received);
+            cmDebug('Raw POST price:', result.data.debug_price_info.raw_post_price);
         }
-        console.log('====================');
+        cmDebug('====================');
 
         if (!result.success) {
             throw new Error(result.data?.message || 'Failed to build mint transaction');

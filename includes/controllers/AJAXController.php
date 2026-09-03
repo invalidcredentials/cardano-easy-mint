@@ -9,7 +9,6 @@ class AJAXController
     {
         // Test endpoint for Anvil API
         add_action('wp_ajax_cardano_test_anvil_api', [self::class, 'testAnvilAPI']);
-        add_action('wp_ajax_nopriv_cardano_test_anvil_api', [self::class, 'testAnvilAPI']);
     }
 
     public static function testAnvilAPI() {

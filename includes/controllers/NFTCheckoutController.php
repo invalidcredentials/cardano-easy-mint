@@ -25,10 +25,6 @@ class NFTCheckoutController {
         // Admin endpoint to get policy data
         add_action('wp_ajax_cardano_get_policy_data', [self::class, 'ajaxGetPolicyData']);
 
-        // Get CardanoPress connected wallet address
-        add_action('wp_ajax_cardano_get_connected_wallet', [self::class, 'ajaxGetConnectedWallet']);
-        add_action('wp_ajax_nopriv_cardano_get_connected_wallet', [self::class, 'ajaxGetConnectedWallet']);
-
         // Server-side CBOR -> Bech32 address conversion (Anvil proxy). Keeps the
         // Anvil API key on the server instead of localizing it into the page.
         add_action('wp_ajax_cardano_convert_address', [self::class, 'ajaxConvertAddress']);
@@ -201,19 +197,6 @@ class NFTCheckoutController {
         wp_send_json_success($result);
     }
 
-    public static function ajaxGetConnectedWallet() {
-        check_ajax_referer('cardanocheckoutnonce', 'nonce');
-
-        if (function_exists('cardanoPress')) {
-            $address = cardanoPress()->userProfile()->connectedWallet();
-            if ($address) {
-                wp_send_json_success(['address' => $address]);
-            }
-        }
-
-        wp_send_json_error(['message' => 'No wallet connected']);
-    }
-
     /**
      * AJAX: convert a CBOR/hex-encoded Cardano address to Bech32 via Anvil.
      * Public (the mint modal runs for logged-out visitors) but nonce-gated and
@@ -261,7 +244,7 @@ class NFTCheckoutController {
             $specificVariant = strtoupper($variant);
 
             if (WP_DEBUG) {
-                error_log('Cardano Mint: Specific variant requested - Collection: ' . $collectionId . ', Variant: ' . $variant);
+                cardanomint_log('Cardano Mint: Specific variant requested - Collection: ' . $collectionId . ', Variant: ' . $variant);
             }
         } else {
             // Random weighted selection from all variants (e.g., "1")
@@ -269,7 +252,7 @@ class NFTCheckoutController {
             $mint = MintModel::selectWeightedRandomAsset($collectionId);
 
             if (WP_DEBUG) {
-                error_log('Cardano Mint: Weighted random selection for collection: ' . $collectionId);
+                cardanomint_log('Cardano Mint: Weighted random selection for collection: ' . $collectionId);
             }
         }
 
@@ -278,9 +261,9 @@ class NFTCheckoutController {
 
         // Debug logging
         if (WP_DEBUG) {
-            error_log('Cardano Mint Controller Debug - Mint ID Param: ' . $mintIdParam);
-            error_log('Cardano Mint Controller Debug - Selected Mint: ' . ($mint ? $mint['id'] : 'NULL'));
-            error_log('Cardano Mint Controller Debug - Merchant Address: ' . $merchant_address);
+            cardanomint_log('Cardano Mint Controller Debug - Mint ID Param: ' . $mintIdParam);
+            cardanomint_log('Cardano Mint Controller Debug - Selected Mint: ' . ($mint ? $mint['id'] : 'NULL'));
+            cardanomint_log('Cardano Mint Controller Debug - Merchant Address: ' . $merchant_address);
         }
 
         // Pass merchant address to the view
@@ -420,12 +403,12 @@ class NFTCheckoutController {
         $quantity = max(1, min(5, intval($_POST['quantity'] ?? 1)));
 
         // Debug logging
-        error_log("=== MINT TRANSACTION DEBUG ===");
-        error_log("merchant_address: " . $merchant_address);
-        error_log("customer_address: " . $customer_address);
-        error_log("posted usd_price (ignored, server uses DB price): " . $posted_usd_price);
-        error_log("policy_id: " . $policy_id);
-        error_log("asset_id: " . $asset_id);
+        cardanomint_log("=== MINT TRANSACTION DEBUG ===");
+        cardanomint_log("merchant_address: " . $merchant_address);
+        cardanomint_log("customer_address: " . $customer_address);
+        cardanomint_log("posted usd_price (ignored, server uses DB price): " . $posted_usd_price);
+        cardanomint_log("policy_id: " . $policy_id);
+        cardanomint_log("asset_id: " . $asset_id);
 
         // Network gate: reject the build if the client's Cardano address is
         // not on the same network as this site. Without this check, a customer
@@ -448,21 +431,21 @@ class NFTCheckoutController {
 
         // Validate inputs that must come from the client.
         if (!$merchant_address || !$customer_address || !$policy_id || $asset_id <= 0) {
-            error_log("VALIDATION FAILED:");
-            error_log("merchant_address valid: " . ($merchant_address ? 'YES' : 'NO'));
-            error_log("customer_address valid: " . ($customer_address ? 'YES' : 'NO'));
-            error_log("policy_id valid: " . ($policy_id ? 'YES' : 'NO'));
-            error_log("asset_id > 0: " . ($asset_id > 0 ? 'YES' : 'NO'));
+            cardanomint_log("VALIDATION FAILED:", 'error');
+            cardanomint_log("merchant_address valid: " . ($merchant_address ? 'YES' : 'NO'));
+            cardanomint_log("customer_address valid: " . ($customer_address ? 'YES' : 'NO'));
+            cardanomint_log("policy_id valid: " . ($policy_id ? 'YES' : 'NO'));
+            cardanomint_log("asset_id > 0: " . ($asset_id > 0 ? 'YES' : 'NO'));
             wp_send_json_error(['message' => 'Missing or invalid parameters']);
         }
 
         // Get mint data for the specific asset by ID (NOT by policy!)
-        error_log("=== FETCHING MINT DATA BY ASSET ID ===");
-        error_log("Looking for asset ID: " . $asset_id);
+        cardanomint_log("=== FETCHING MINT DATA BY ASSET ID ===");
+        cardanomint_log("Looking for asset ID: " . $asset_id);
         $mint_data = MintModel::getMintById($asset_id);
 
         if (!$mint_data) {
-            error_log("ERROR: No mint data found for asset ID: " . $asset_id);
+            cardanomint_log("ERROR: No mint data found for asset ID: " . $asset_id, 'error');
             wp_send_json_error(['message' => 'Asset not found']);
         }
 
@@ -470,13 +453,13 @@ class NFTCheckoutController {
         // The live ADA conversion happens inside AnvilAPI::buildMintTransaction via getAdaPrice().
         $usd_price = floatval($mint_data['price'] ?? 0);
         if ($usd_price <= 0) {
-            error_log("ERROR: Mint record has no USD price configured (asset_id=" . $asset_id . ")");
+            cardanomint_log("ERROR: Mint record has no USD price configured (asset_id=" . $asset_id . ")", 'error');
             wp_send_json_error(['message' => 'Mint is not priced. Please contact the site administrator.']);
         }
         if (abs($usd_price - $posted_usd_price) > 0.01) {
-            error_log("NOTICE: Client-posted usd_price (" . $posted_usd_price . ") does not match DB price (" . $usd_price . "). Using DB price.");
+            cardanomint_log("NOTICE: Client-posted usd_price (" . $posted_usd_price . ") does not match DB price (" . $usd_price . "). Using DB price.");
         }
-        error_log("Using authoritative usd_price from DB: " . $usd_price);
+        cardanomint_log("Using authoritative usd_price from DB: " . $usd_price);
 
         // Alt-pay path: validate the funded invoice and override the merchant
         // lovelace output with the configured ADA service fee. The bulk of
@@ -498,7 +481,7 @@ class NFTCheckoutController {
             if ($service_fee_ada < 2)  $service_fee_ada = 2;
             if ($service_fee_ada > 20) $service_fee_ada = 20;
             $mint_data['_altpay_service_fee_ada_override'] = $service_fee_ada;
-            error_log("[AltPay] legacy build: invoice $invoice_id -> service fee $service_fee_ada ADA");
+            cardanomint_log("[AltPay] legacy build: invoice $invoice_id -> service fee $service_fee_ada ADA");
         }
 
         // Validate remaining supply covers this batch BEFORE we touch wallet limits.
@@ -512,13 +495,13 @@ class NFTCheckoutController {
 
         // Check per-wallet mint limits BEFORE building transaction
         $mints_allowed = intval($mint_data['mintsallowedperwallet'] ?? 0);
-        error_log("Checking mint limits for policy: " . $policy_id . ", wallet: " . $customer_address . ", allowed: " . $mints_allowed . ", qty: " . $quantity);
+        cardanomint_log("Checking mint limits for policy: " . $policy_id . ", wallet: " . $customer_address . ", allowed: " . $mints_allowed . ", qty: " . $quantity);
 
         $mint_check = MintModel::canWalletMint($policy_id, $customer_address, $mints_allowed);
-        error_log("Mint limits check result: " . print_r($mint_check, true));
+        cardanomint_log("Mint limits check result: " . print_r($mint_check, true));
 
         if (!$mint_check['can_mint']) {
-            error_log("Mint limits check failed: " . $mint_check['message']);
+            cardanomint_log("Mint limits check failed: " . $mint_check['message'], 'error');
             wp_send_json_error(['message' => $mint_check['message']]);
         }
         // canWalletMint validates 1 mint of headroom; for qty>1 we also need
@@ -527,20 +510,20 @@ class NFTCheckoutController {
             wp_send_json_error(['message' => 'You can only mint ' . $mint_check['remaining'] . ' more from this collection. Lower the quantity.']);
         }
 
-        error_log("FOUND asset!");
-        error_log("Asset variant: " . ($mint_data['variant'] ?? 'NULL') . ", Name: " . ($mint_data['asset_name'] ?? $mint_data['title']));
-        error_log("policy_json present: " . (isset($mint_data['policy_json']) ? 'YES' : 'NO'));
+        cardanomint_log("FOUND asset!");
+        cardanomint_log("Asset variant: " . ($mint_data['variant'] ?? 'NULL') . ", Name: " . ($mint_data['asset_name'] ?? $mint_data['title']));
+        cardanomint_log("policy_json present: " . (isset($mint_data['policy_json']) ? 'YES' : 'NO'));
         if (isset($mint_data['policy_json'])) {
-            error_log("policy_json length: " . strlen($mint_data['policy_json']));
+            cardanomint_log("policy_json length: " . strlen($mint_data['policy_json']));
         }
-        error_log("=== END FETCHING MINT DATA ===");
+        cardanomint_log("=== END FETCHING MINT DATA ===");
 
         // DEBUG: Log what we're passing to Anvil
-        error_log("About to call buildMintTransaction with:");
-        error_log("  merchant_address: " . $merchant_address);
-        error_log("  customer_address: " . $customer_address);
-        error_log("  usd_price: " . $usd_price);
-        error_log("  policy_id: " . $policy_id);
+        cardanomint_log("About to call buildMintTransaction with:");
+        cardanomint_log("  merchant_address: " . $merchant_address);
+        cardanomint_log("  customer_address: " . $customer_address);
+        cardanomint_log("  usd_price: " . $usd_price);
+        cardanomint_log("  policy_id: " . $policy_id);
 
         // Discount code (ADA path). Validated + reserved server-side; the code
         // only reduces the MSRP component of $usd_price — the +1 ADA/asset
@@ -556,7 +539,7 @@ class NFTCheckoutController {
             }
             $usd_price = (float) $reserve['pricing']['final_per_asset_usd'];
             $discount_redemption_id = (int) $reserve['redemption_id'];
-            error_log("[Discount] code {$discount_code} reserved (redemption {$discount_redemption_id}); per-asset price -> {$usd_price}");
+            cardanomint_log("[Discount] code {$discount_code} reserved (redemption {$discount_redemption_id}); per-asset price -> {$usd_price}");
         }
 
         // Build transaction via Anvil API with mint metadata. Quantity is passed
@@ -634,37 +617,37 @@ class NFTCheckoutController {
             for ($i = 0; $i < $quantity; $i++) {
                 $recorded = MintModel::recordMint($policy_id, $wallet_address, $stake_address, $mints_allowed);
                 if ($recorded) {
-                    error_log("✅ Mint recorded ({$i}/{$quantity}) for wallet: " . $wallet_address . " on policy: " . $policy_id);
+                    cardanomint_log("✅ Mint recorded ({$i}/{$quantity}) for wallet: " . $wallet_address . " on policy: " . $policy_id);
                 } else {
-                    error_log("⚠️ WARNING: Failed to record mint ({$i}/{$quantity}) for wallet: " . $wallet_address);
+                    cardanomint_log("⚠️ WARNING: Failed to record mint ({$i}/{$quantity}) for wallet: " . $wallet_address, 'error');
                 }
                 MintModel::incrementMintCount($policy_id, $wallet_address);
                 if ($asset_id > 0) {
                     $decremented = MintModel::decrementQuantity($asset_id);
                     if (!$decremented) {
-                        error_log("Cardano Mint: WARNING - Failed to decrement quantity ({$i}/{$quantity}) for asset ID " . $asset_id);
+                        cardanomint_log("Cardano Mint: WARNING - Failed to decrement quantity ({$i}/{$quantity}) for asset ID " . $asset_id, 'error');
                     }
                 }
             }
-            error_log("Cardano Mint: completed accounting for batch of {$quantity} on asset ID " . $asset_id);
+            cardanomint_log("Cardano Mint: completed accounting for batch of {$quantity} on asset ID " . $asset_id);
 
             // Mark CIP-27 royalty token as minted for this policy (if it was the first mint)
             // This ensures subsequent mints for this policy won't mint another royalty token
             $royalty_marked = MintModel::markRoyaltyTokenMinted($policy_id);
             if ($royalty_marked) {
-                error_log("✅ CIP-27 royalty token marked as minted for policy: " . $policy_id);
+                cardanomint_log("✅ CIP-27 royalty token marked as minted for policy: " . $policy_id);
             } else {
-                error_log("ℹ️ Royalty token already marked as minted for policy: " . $policy_id);
+                cardanomint_log("ℹ️ Royalty token already marked as minted for policy: " . $policy_id);
             }
 
             // Alt-pay: close out the invoice so it can't be reused for another mint.
             $invoice_id = intval($_POST['invoice_id'] ?? 0);
             if ($invoice_id > 0 && class_exists('CardanoMintPay\\Models\\ChainInvoiceModel')) {
                 \CardanoMintPay\Models\ChainInvoiceModel::set_status($invoice_id, 'consumed');
-                error_log("[AltPay] legacy submit: invoice $invoice_id marked consumed (tx $tx_hash)");
+                cardanomint_log("[AltPay] legacy submit: invoice $invoice_id marked consumed (tx $tx_hash)");
                 // Commit any discount reservation tied to this alt-pay invoice.
                 $dcommit = DiscountService::commit_for_invoice($invoice_id, $tx_hash);
-                error_log("[Discount] commit for invoice $invoice_id: " . ($dcommit ? 'ok' : 'none'));
+                cardanomint_log("[Discount] commit for invoice $invoice_id: " . ($dcommit ? 'ok' : 'none'));
             }
 
             // Discount: commit the reservation now that the mint is on-chain, so
@@ -674,7 +657,7 @@ class NFTCheckoutController {
             $discount_redemption_id = intval($_POST['discount_redemption_id'] ?? 0);
             if ($discount_redemption_id > 0) {
                 $committed = DiscountService::commit($discount_redemption_id, $wallet_address, $tx_hash);
-                error_log("[Discount] commit redemption {$discount_redemption_id}: " . ($committed ? 'ok' : 'no-op'));
+                cardanomint_log("[Discount] commit redemption {$discount_redemption_id}: " . ($committed ? 'ok' : 'no-op'));
             }
         }
 
@@ -762,32 +745,30 @@ class NFTCheckoutController {
      * AJAX endpoint to export mint history as CSV
      */
     public static function ajaxExportMintHistory() {
-        error_log('=== EXPORT MINT HISTORY DEBUG ===');
-        error_log('POST data: ' . print_r($_POST, true));
 
         check_ajax_referer('cardano_export_mint_history', 'nonce');
 
         if (!current_user_can('manage_options')) {
-            error_log('Export failed: Insufficient permissions');
+            cardanomint_log('Export failed: Insufficient permissions', 'error');
             wp_send_json_error(['message' => 'Insufficient permissions']);
         }
 
         $policy_id = sanitize_text_field($_POST['policy_id'] ?? '');
         $mint_title = sanitize_text_field($_POST['mint_title'] ?? '');
 
-        error_log('Policy ID: ' . $policy_id);
-        error_log('Mint Title: ' . $mint_title);
+        cardanomint_log('Policy ID: ' . $policy_id);
+        cardanomint_log('Mint Title: ' . $mint_title);
 
         if (empty($policy_id)) {
-            error_log('Export failed: Policy ID required');
+            cardanomint_log('Export failed: Policy ID required', 'error');
             wp_send_json_error(['message' => 'Policy ID required']);
         }
 
         // Generate CSV
         $csv = MintModel::exportMintHistoryCSV($policy_id, $mint_title);
 
-        error_log('CSV generated, length: ' . strlen($csv));
-        error_log('CSV preview: ' . substr($csv, 0, 200));
+        cardanomint_log('CSV generated, length: ' . strlen($csv));
+        cardanomint_log('CSV preview: ' . substr($csv, 0, 200));
 
         // Return CSV content (will be downloaded by JavaScript)
         wp_send_json_success([
@@ -800,31 +781,29 @@ class NFTCheckoutController {
      * AJAX endpoint to import mint whitelist from CSV
      */
     public static function ajaxImportMintWhitelist() {
-        error_log('=== IMPORT MINT WHITELIST DEBUG ===');
-        error_log('POST data: ' . print_r($_POST, true));
 
         check_ajax_referer('cardano_import_mint_whitelist', 'nonce');
 
         if (!current_user_can('manage_options')) {
-            error_log('Import failed: Insufficient permissions');
+            cardanomint_log('Import failed: Insufficient permissions', 'error');
             wp_send_json_error(['message' => 'Insufficient permissions']);
         }
 
         $policy_id = sanitize_text_field($_POST['policy_id'] ?? '');
         $csv_content = stripslashes($_POST['csv_content'] ?? '');
 
-        error_log('Policy ID: ' . $policy_id);
-        error_log('CSV content length: ' . strlen($csv_content));
+        cardanomint_log('Policy ID: ' . $policy_id);
+        cardanomint_log('CSV content length: ' . strlen($csv_content));
 
         if (empty($policy_id) || empty($csv_content)) {
-            error_log('Import failed: Missing policy ID or CSV content');
+            cardanomint_log('Import failed: Missing policy ID or CSV content', 'error');
             wp_send_json_error(['message' => 'Policy ID and CSV content required']);
         }
 
         // Import CSV
         $result = MintModel::importMintWhitelistCSV($policy_id, $csv_content);
 
-        error_log('Import result: ' . print_r($result, true));
+        cardanomint_log('Import result: ' . print_r($result, true));
 
         if ($result['success']) {
             wp_send_json_success([
@@ -844,22 +823,20 @@ class NFTCheckoutController {
      * AJAX endpoint to get mint history for a policy (for modal display)
      */
     public static function ajaxGetMintHistory() {
-        error_log('=== GET MINT HISTORY DEBUG ===');
-        error_log('POST data: ' . print_r($_POST, true));
 
         check_ajax_referer('cardano_get_mint_history', 'nonce');
 
         if (!current_user_can('manage_options')) {
-            error_log('Get history failed: Insufficient permissions');
+            cardanomint_log('Get history failed: Insufficient permissions', 'error');
             wp_send_json_error(['message' => 'Insufficient permissions']);
         }
 
         $policy_id = sanitize_text_field($_POST['policy_id'] ?? '');
 
-        error_log('Policy ID: ' . $policy_id);
+        cardanomint_log('Policy ID: ' . $policy_id);
 
         if (empty($policy_id)) {
-            error_log('Get history failed: Policy ID required');
+            cardanomint_log('Get history failed: Policy ID required', 'error');
             wp_send_json_error(['message' => 'Policy ID required']);
         }
 
@@ -867,8 +844,8 @@ class NFTCheckoutController {
         $history = MintModel::getMintHistoryForPolicy($policy_id);
         $unique_count = MintModel::getUniqueMinterCount($policy_id);
 
-        error_log('History count: ' . count($history));
-        error_log('Unique minters: ' . $unique_count);
+        cardanomint_log('History count: ' . count($history));
+        cardanomint_log('Unique minters: ' . $unique_count);
 
         wp_send_json_success([
             'history' => $history,

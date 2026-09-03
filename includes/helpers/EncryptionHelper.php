@@ -17,36 +17,36 @@ class EncryptionHelper {
      */
     public static function encrypt($plaintext) {
         if (empty($plaintext)) {
-            error_log('EncryptionHelper: encrypt() called with empty plaintext');
+            cardanomint_log('EncryptionHelper: encrypt() called with empty plaintext');
             return '';
         }
 
-        error_log('EncryptionHelper: Encrypting data (length: ' . strlen($plaintext) . ')');
+        cardanomint_log('EncryptionHelper: Encrypting data (length: ' . strlen($plaintext) . ')');
 
         // Derive encryption key from WordPress salts
         $key = self::deriveKey();
 
-        error_log('EncryptionHelper: Encryption key derived (length: ' . strlen($key) . ')');
+        cardanomint_log('EncryptionHelper: Encryption key derived (length: ' . strlen($key) . ')');
 
         // Generate random IV (16 bytes for AES-256-CBC)
         $iv = openssl_random_pseudo_bytes(16);
 
-        error_log('EncryptionHelper: IV generated (length: ' . strlen($iv) . ')');
+        cardanomint_log('EncryptionHelper: IV generated (length: ' . strlen($iv) . ')');
 
         // Encrypt using AES-256-CBC
         $encrypted = openssl_encrypt($plaintext, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
 
         if ($encrypted === false) {
-            error_log('EncryptionHelper: openssl_encrypt() returned FALSE');
-            error_log('EncryptionHelper: OpenSSL error: ' . openssl_error_string());
+            cardanomint_log('EncryptionHelper: openssl_encrypt() returned FALSE');
+            cardanomint_log('EncryptionHelper: OpenSSL error: ' . openssl_error_string(), 'error');
             return '';
         }
 
-        error_log('EncryptionHelper: Encryption successful (encrypted length: ' . strlen($encrypted) . ')');
+        cardanomint_log('EncryptionHelper: Encryption successful (encrypted length: ' . strlen($encrypted) . ')');
 
         // Prepend IV to encrypted data and encode as base64
         $result = base64_encode($iv . $encrypted);
-        error_log('EncryptionHelper: Base64 encoded result length: ' . strlen($result));
+        cardanomint_log('EncryptionHelper: Base64 encoded result length: ' . strlen($result));
 
         return $result;
     }
@@ -69,7 +69,7 @@ class EncryptionHelper {
         $data = base64_decode($ciphertext, true);
 
         if ($data === false || strlen($data) < 17) {
-            error_log('EncryptionHelper: Invalid ciphertext format');
+            cardanomint_log('EncryptionHelper: Invalid ciphertext format', 'error');
             return false;
         }
 
@@ -81,7 +81,7 @@ class EncryptionHelper {
         $plaintext = openssl_decrypt($encrypted, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
 
         if ($plaintext === false) {
-            error_log('EncryptionHelper: Decryption failed');
+            cardanomint_log('EncryptionHelper: Decryption failed', 'error');
             return false;
         }
 
@@ -100,17 +100,17 @@ class EncryptionHelper {
         // Check if WordPress salts are defined
         if (!defined('AUTH_KEY') || !defined('SECURE_AUTH_KEY') ||
             !defined('LOGGED_IN_KEY') || !defined('NONCE_KEY')) {
-            error_log('EncryptionHelper: WordPress salts not defined!');
-            error_log('AUTH_KEY defined: ' . (defined('AUTH_KEY') ? 'YES' : 'NO'));
-            error_log('SECURE_AUTH_KEY defined: ' . (defined('SECURE_AUTH_KEY') ? 'YES' : 'NO'));
-            error_log('LOGGED_IN_KEY defined: ' . (defined('LOGGED_IN_KEY') ? 'YES' : 'NO'));
-            error_log('NONCE_KEY defined: ' . (defined('NONCE_KEY') ? 'YES' : 'NO'));
+            cardanomint_log('EncryptionHelper: WordPress salts not defined!');
+            cardanomint_log('AUTH_KEY defined: ' . (defined('AUTH_KEY') ? 'YES' : 'NO'));
+            cardanomint_log('SECURE_AUTH_KEY defined: ' . (defined('SECURE_AUTH_KEY') ? 'YES' : 'NO'));
+            cardanomint_log('LOGGED_IN_KEY defined: ' . (defined('LOGGED_IN_KEY') ? 'YES' : 'NO'));
+            cardanomint_log('NONCE_KEY defined: ' . (defined('NONCE_KEY') ? 'YES' : 'NO'));
         }
 
         $salt_data = AUTH_KEY . SECURE_AUTH_KEY . LOGGED_IN_KEY . NONCE_KEY;
 
         // Log salt data length (not the actual salts for security)
-        error_log('EncryptionHelper: Salt data length: ' . strlen($salt_data));
+        cardanomint_log('EncryptionHelper: Salt data length: ' . strlen($salt_data));
 
         // Derive a 32-byte key using SHA-256
         return hash('sha256', $salt_data, true);
@@ -129,10 +129,10 @@ class EncryptionHelper {
         $success = ($decrypted === $test_data);
 
         if (!$success) {
-            error_log('EncryptionHelper test failed!');
-            error_log('Original: ' . $test_data);
-            error_log('Encrypted: ' . $encrypted);
-            error_log('Decrypted: ' . ($decrypted ?: 'FALSE'));
+            cardanomint_log('EncryptionHelper test failed!', 'error');
+            cardanomint_log('Original: ' . $test_data);
+            cardanomint_log('Encrypted: ' . $encrypted);
+            cardanomint_log('Decrypted: ' . ($decrypted ?: 'FALSE'));
         }
 
         return $success;

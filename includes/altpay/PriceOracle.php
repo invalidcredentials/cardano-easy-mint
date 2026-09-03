@@ -50,7 +50,7 @@ class PriceOracle {
             'user-agent' => 'WordPress/CardanoMint-AltPay',
         ]);
         if (is_wp_error($resp)) {
-            error_log('[CardanoMint AltPay] PriceOracle fetch failed: ' . $resp->get_error_message());
+            cardanomint_log('[CardanoMint AltPay] PriceOracle fetch failed: ' . $resp->get_error_message(), 'error');
             return [];
         }
         $body = wp_remote_retrieve_body($resp);

@@ -64,14 +64,14 @@ class PolicyWalletController {
         $wallet_name = sanitize_text_field($_POST['wallet_name'] ?? 'Default Policy Wallet');
         $network = get_option('cardano-mint-networkenvironment', 'preprod');
 
-        error_log("PolicyWalletController: Generating wallet for network: " . $network);
+        cardanomint_log("PolicyWalletController: Generating wallet for network: " . $network);
 
         // Generate wallet using cross-platform CLI helper
         $result = CardanoCLI::generateWallet($network, true);
 
         if (!$result || !isset($result['success']) || !$result['success']) {
             $error_msg = isset($result['error']) ? $result['error'] : 'Unknown wallet generation error';
-            error_log("PolicyWalletController: Wallet generation failed: " . $error_msg);
+            cardanomint_log("PolicyWalletController: Wallet generation failed: " . $error_msg, 'error');
             add_settings_error(
                 'cardano_policy_wallet',
                 'generation_failed',
@@ -83,11 +83,11 @@ class PolicyWalletController {
             exit;
         }
 
-        error_log("PolicyWalletController: Wallet generated successfully");
-        error_log("PolicyWalletController: Result keys: " . implode(', ', array_keys($result)));
+        cardanomint_log("PolicyWalletController: Wallet generated successfully");
+        cardanomint_log("PolicyWalletController: Result keys: " . implode(', ', array_keys($result)));
 
         if (!isset($result['mnemonic'])) {
-            error_log("PolicyWalletController: FAIL - Missing mnemonic field");
+            cardanomint_log("PolicyWalletController: FAIL - Missing mnemonic field", 'error');
             add_settings_error(
                 'cardano_policy_wallet',
                 'generation_failed',
@@ -99,18 +99,18 @@ class PolicyWalletController {
             exit;
         }
 
-        error_log("PolicyWalletController: Mnemonic field exists");
-        error_log("PolicyWalletController: Has payment_skey_extended? " . (isset($result['payment_skey_extended']) ? 'YES' : 'NO'));
+        cardanomint_log("PolicyWalletController: Mnemonic field exists");
+        cardanomint_log("PolicyWalletController: Has payment_skey_extended? " . (isset($result['payment_skey_extended']) ? 'YES' : 'NO'));
 
         // Encrypt sensitive data
         $mnemonic_encrypted = EncryptionHelper::encrypt($result['mnemonic']);
         $skey_encrypted = EncryptionHelper::encrypt($result['payment_skey_extended']);
 
-        error_log("PolicyWalletController: Mnemonic encrypted length: " . strlen($mnemonic_encrypted));
-        error_log("PolicyWalletController: Skey encrypted length: " . strlen($skey_encrypted));
+        cardanomint_log("PolicyWalletController: Mnemonic encrypted length: " . strlen($mnemonic_encrypted));
+        cardanomint_log("PolicyWalletController: Skey encrypted length: " . strlen($skey_encrypted));
 
         if (empty($mnemonic_encrypted) || empty($skey_encrypted)) {
-            error_log("PolicyWalletController: FAIL - Encryption failed (empty result)");
+            cardanomint_log("PolicyWalletController: FAIL - Encryption failed (empty result)", 'error');
             add_settings_error(
                 'cardano_policy_wallet',
                 'encryption_failed',
@@ -122,19 +122,19 @@ class PolicyWalletController {
             exit;
         }
 
-        error_log("PolicyWalletController: Encryption successful");
+        cardanomint_log("PolicyWalletController: Encryption successful");
 
         // New wallet API returns addresses in nested array
         $payment_address = $result['addresses']['payment_address'] ?? null;
         $stake_address = $result['addresses']['stake_address'] ?? null;
         $payment_keyhash = $result['payment_keyhash'] ?? null;
 
-        error_log("PolicyWalletController: Payment address: " . ($payment_address ?? 'NULL'));
-        error_log("PolicyWalletController: Stake address: " . ($stake_address ?? 'NULL'));
-        error_log("PolicyWalletController: Key hash: " . ($payment_keyhash ?? 'NULL'));
+        cardanomint_log("PolicyWalletController: Payment address: " . ($payment_address ?? 'NULL'));
+        cardanomint_log("PolicyWalletController: Stake address: " . ($stake_address ?? 'NULL'));
+        cardanomint_log("PolicyWalletController: Key hash: " . ($payment_keyhash ?? 'NULL'));
 
         // Store in database
-        error_log("PolicyWalletController: Attempting database insertion...");
+        cardanomint_log("PolicyWalletController: Attempting database insertion...");
         $wallet_id = MintModel::insertPolicyWallet([
             'wallet_name' => $wallet_name,
             'mnemonic_encrypted' => $mnemonic_encrypted,
@@ -145,13 +145,13 @@ class PolicyWalletController {
             'network' => $network
         ]);
 
-        error_log("PolicyWalletController: Database insertion result: " . ($wallet_id ? "SUCCESS (ID: {$wallet_id})" : "FAILED"));
+        cardanomint_log("PolicyWalletController: Database insertion result: " . ($wallet_id ? "SUCCESS (ID: {$wallet_id})" : "FAILED"), 'error');
 
         if ($wallet_id) {
             // Store mnemonic in transient for ONE-TIME display (5 minutes)
             set_transient('cardano_policy_wallet_mnemonic_' . get_current_user_id(), $result['mnemonic'], 300);
 
-            error_log("PolicyWalletController: Wallet creation complete - redirecting with success");
+            cardanomint_log("PolicyWalletController: Wallet creation complete - redirecting with success");
             add_settings_error(
                 'cardano_policy_wallet',
                 'wallet_created',
@@ -159,7 +159,7 @@ class PolicyWalletController {
                 'success'
             );
         } else {
-            error_log("PolicyWalletController: FAIL - Database insertion returned false/0");
+            cardanomint_log("PolicyWalletController: FAIL - Database insertion returned false/0", 'error');
             add_settings_error(
                 'cardano_policy_wallet',
                 'db_insert_failed',

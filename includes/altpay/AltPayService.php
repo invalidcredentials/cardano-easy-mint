@@ -235,11 +235,10 @@ class AltPayService {
             // and the invoice never advances. Surface it so the operator
             // can see the underlying $wpdb->last_error in the PHP log.
             global $wpdb;
-            error_log(
+            cardanomint_log(
                 '[CardanoMint AltPay] reconcile failed to set_status invoice='
                 . (int) $inv['id'] . ' target=' . $target
-                . ' wpdb_last_error=' . ($wpdb ? $wpdb->last_error : '?')
-            );
+                . ' wpdb_last_error=' . ($wpdb ? $wpdb->last_error : '?'), 'error');
         }
     }
 
@@ -280,7 +279,7 @@ class AltPayService {
                 $amountMinor
             );
         } catch (\Throwable $e) {
-            error_log('[CardanoMint AltPay] refund failed: ' . $e->getMessage());
+            cardanomint_log('[CardanoMint AltPay] refund failed: ' . $e->getMessage(), 'error');
             return new \WP_Error('altpay_refund_failed', $e->getMessage());
         }
 
@@ -355,7 +354,7 @@ class AltPayService {
         try {
             $result = $provider->buildAndBroadcastRefund($walletId, $bestIndex, $toAddress, $amountMinor);
         } catch (\Throwable $e) {
-            error_log('[CardanoMint AltPay] send_from_wallet failed: ' . $e->getMessage());
+            cardanomint_log('[CardanoMint AltPay] send_from_wallet failed: ' . $e->getMessage(), 'error');
             return new \WP_Error('altpay_send_failed', $e->getMessage());
         }
 

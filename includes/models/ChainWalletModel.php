@@ -31,7 +31,7 @@ class ChainWalletModel {
 
         $xprv = (string) ($row['xprv'] ?? '');
         if ($xprv === '') {
-            error_log('[CardanoMint AltPay] ChainWalletModel::insert called without xprv');
+            cardanomint_log('[CardanoMint AltPay] ChainWalletModel::insert called without xprv');
             return 0;
         }
 
@@ -124,7 +124,7 @@ class ChainWalletModel {
             ));
             if ($rows === 1) return $current;
         }
-        error_log('[CardanoMint AltPay] allocate_next_index lost race 5 times for wallet ' . $walletId);
+        cardanomint_log('[CardanoMint AltPay] allocate_next_index lost race 5 times for wallet ' . $walletId);
         return -1;
     }
 }

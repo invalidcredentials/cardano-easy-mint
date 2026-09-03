@@ -47,7 +47,7 @@ class OnrampWebhookController {
             return new \WP_Error('webhook_disabled', 'Webhook IP allowlist is empty', ['status' => 503]);
         }
         if (!in_array($ip, $allowlist, true)) {
-            error_log('[CardanoMint Onramp] Webhook from unauthorized IP: ' . $ip);
+            cardanomint_log('[CardanoMint Onramp] Webhook from unauthorized IP: ' . $ip);
             return new \WP_Error('webhook_forbidden', 'IP not allowlisted', ['status' => 403]);
         }
         return true;
@@ -61,7 +61,7 @@ class OnrampWebhookController {
         if (is_wp_error($resp)) {
             // Soft-200: don't make Guardarian retry a webhook we can't match,
             // but log loudly so the operator can investigate.
-            error_log('[CardanoMint Onramp] Webhook reconcile error: ' . $resp->get_error_message());
+            cardanomint_log('[CardanoMint Onramp] Webhook reconcile error: ' . $resp->get_error_message(), 'error');
             return rest_ensure_response(['ok' => false, 'message' => $resp->get_error_message()]);
         }
         return rest_ensure_response(['ok' => true, 'session_id' => $resp['session_id'] ?? null, 'status' => $resp['status'] ?? null]);

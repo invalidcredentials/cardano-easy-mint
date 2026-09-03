@@ -12,18 +12,18 @@ class AnvilAPI {
         $api_url = get_option("cardano_{$plugin_type}_anvil_api_url", 'https://preprod.api.ada-anvil.app/v2/services');
         $api_key = get_option("cardano_{$plugin_type}_anvil_api_key");
         
-        error_log("Anvil API call details:");
-        error_log("Endpoint: " . $endpoint);
-        error_log("API URL: " . $api_url);
-        error_log("Plugin type: " . $plugin_type);
-        error_log("Data being sent: " . wp_json_encode($data, JSON_PRETTY_PRINT));
+        cardanomint_log("Anvil API call details:");
+        cardanomint_log("Endpoint: " . $endpoint);
+        cardanomint_log("API URL: " . $api_url);
+        cardanomint_log("Plugin type: " . $plugin_type);
+        cardanomint_log("Data being sent: " . wp_json_encode($data, JSON_PRETTY_PRINT));
         
         if (!$api_key) {
-            error_log("No API key configured for plugin type: " . $plugin_type);
+            cardanomint_log("No API key configured for plugin type: " . $plugin_type);
             return new \WP_Error('no_api_key', 'Anvil API key not configured');
         }
         
-        error_log("Making API call to: " . $api_url . '/' . $endpoint);
+        cardanomint_log("Making API call to: " . $api_url . '/' . $endpoint);
         $response = wp_remote_post($api_url . '/' . $endpoint, array(
             'headers' => array(
                 'Content-Type' => 'application/json',
@@ -78,30 +78,30 @@ class AnvilAPI {
         }
         
         // Extract Bech32 address from response
-        error_log("Checking response format for address conversion:");
-        error_log("response['address'] exists: " . (isset($response['address']) ? 'YES' : 'NO'));
-        error_log("response['bech32Address'] exists: " . (isset($response['bech32Address']) ? 'YES' : 'NO'));
-        error_log("response['parsed']['address'] exists: " . (isset($response['parsed']['address']) ? 'YES' : 'NO'));
-        error_log("response['payment'] exists: " . (isset($response['payment']) ? 'YES' : 'NO'));
-        error_log("response['stake'] exists: " . (isset($response['stake']) ? 'YES' : 'NO'));
+        cardanomint_log("Checking response format for address conversion:");
+        cardanomint_log("response['address'] exists: " . (isset($response['address']) ? 'YES' : 'NO'));
+        cardanomint_log("response['bech32Address'] exists: " . (isset($response['bech32Address']) ? 'YES' : 'NO'));
+        cardanomint_log("response['parsed']['address'] exists: " . (isset($response['parsed']['address']) ? 'YES' : 'NO'));
+        cardanomint_log("response['payment'] exists: " . (isset($response['payment']) ? 'YES' : 'NO'));
+        cardanomint_log("response['stake'] exists: " . (isset($response['stake']) ? 'YES' : 'NO'));
         
         if (isset($response['address'])) {
-            error_log("Using response['address']: " . $response['address']);
+            cardanomint_log("Using response['address']: " . $response['address']);
             return $response['address'];
         } elseif (isset($response['bech32Address'])) {
-            error_log("Using response['bech32Address']: " . $response['bech32Address']);
+            cardanomint_log("Using response['bech32Address']: " . $response['bech32Address']);
             return $response['bech32Address'];
         } elseif (isset($response['parsed']['address'])) {
-            error_log("Using response['parsed']['address']: " . $response['parsed']['address']);
+            cardanomint_log("Using response['parsed']['address']: " . $response['parsed']['address']);
             return $response['parsed']['address'];
         } elseif (isset($response['payment']) && isset($response['stake'])) {
             // Handle the payment/stake format by constructing the full address
             // For now, return the original address and let Anvil handle the conversion
-            error_log("Payment/stake format detected, returning original address for Anvil to handle: " . $address);
+            cardanomint_log("Payment/stake format detected, returning original address for Anvil to handle: " . $address);
             return $address;
         }
         
-        error_log("No Bech32 address found in response, returning original address: " . $address);
+        cardanomint_log("No Bech32 address found in response, returning original address: " . $address);
         return $address;
     }
 
@@ -117,44 +117,44 @@ class AnvilAPI {
         if ($is_verbatim) {
             $quantity = 1;
         }
-        error_log("buildMintTransaction called with:");
-        error_log("merchant_address: " . $merchant_address);
-        error_log("customer_address: " . $customer_address);
-        error_log("usd_price: " . $usd_price);
-        error_log("policy_id: " . $policy_id);
-        error_log("plugin_type: " . $plugin_type);
+        cardanomint_log("buildMintTransaction called with:");
+        cardanomint_log("merchant_address: " . $merchant_address);
+        cardanomint_log("customer_address: " . $customer_address);
+        cardanomint_log("usd_price: " . $usd_price);
+        cardanomint_log("policy_id: " . $policy_id);
+        cardanomint_log("plugin_type: " . $plugin_type);
 
         // CRITICAL: Convert all addresses to Bech32 format for consistency
-        error_log("Converting addresses to Bech32 format for consistency...");
+        cardanomint_log("Converting addresses to Bech32 format for consistency...");
 
         // Convert merchant address to Bech32 if needed
         if (!preg_match('/^addr[0-9a-z]+$/', $merchant_address)) {
             $merchant_address = self::convertAddressToBech32($merchant_address, $plugin_type);
-            error_log("Converted merchant address to Bech32: " . $merchant_address);
+            cardanomint_log("Converted merchant address to Bech32: " . $merchant_address);
         }
 
         // Convert customer address to Bech32 if needed
         if (!preg_match('/^addr[0-9a-z]+$/', $customer_address)) {
             $customer_address = self::convertAddressToBech32($customer_address, $plugin_type);
-            error_log("Converted customer address to Bech32: " . $customer_address);
+            cardanomint_log("Converted customer address to Bech32: " . $customer_address);
         }
 
-        error_log("Final addresses - Merchant: " . $merchant_address . ", Customer: " . $customer_address);
+        cardanomint_log("Final addresses - Merchant: " . $merchant_address . ", Customer: " . $customer_address);
 
         // Get current ADA price
-        error_log("Getting ADA price...");
+        cardanomint_log("Getting ADA price...");
         $ada_price = self::getAdaPrice();
-        error_log("ADA price: " . $ada_price);
+        cardanomint_log("ADA price: " . $ada_price);
         $ada_amount = $usd_price / $ada_price;
-        error_log("ADA amount: " . $ada_amount);
+        cardanomint_log("ADA amount: " . $ada_amount);
 
         // Fee calculation for Cardano Mint - includes additional 1 ADA minting fee per asset
         $minting_fee = 1.0; // Additional 1 ADA fee per minted NFT
         $per_asset_ada = $ada_amount + $minting_fee;
         $total_ada_amount = $per_asset_ada * $quantity;
-        error_log("Minting fee: " . $minting_fee . " ADA per asset");
-        error_log("Quantity: " . $quantity);
-        error_log("Total ADA amount (price + minting fee, x qty): " . $total_ada_amount);
+        cardanomint_log("Minting fee: " . $minting_fee . " ADA per asset");
+        cardanomint_log("Quantity: " . $quantity);
+        cardanomint_log("Total ADA amount (price + minting fee, x qty): " . $total_ada_amount);
 
         // Alt-paid override: when the customer paid for the NFT on a different
         // chain, this Cardano tx only carries the configured ADA service fee
@@ -166,13 +166,13 @@ class AnvilAPI {
         if (is_array($mint_data) && !empty($mint_data['_altpay_service_fee_ada_override'])) {
             $altpay_override_used = true;
             $total_ada_amount = ((float) $mint_data['_altpay_service_fee_ada_override']) * $quantity;
-            error_log("[AltPay] merchant output overridden to " . $total_ada_amount . " ADA (alt-chain payment, qty " . $quantity . ")");
+            cardanomint_log("[AltPay] merchant output overridden to " . $total_ada_amount . " ADA (alt-chain payment, qty " . $quantity . ")");
         }
 
         // 1 ADA receipt per minted NFT — Cardano min-ADA scales with the
         // number of native tokens in the UTxO; Anvil bumps this if needed.
         $receipt_amount = 1.0 * $quantity;
-        error_log("Receipt amount: " . $receipt_amount);
+        cardanomint_log("Receipt amount: " . $receipt_amount);
 
         // Per-policy global counter so asset names increment additively across
         // mints (e.g. _019, _020, _021…), not just within a single batch. The
@@ -209,7 +209,7 @@ class AnvilAPI {
             $decoded_vm = json_decode((string) ($mint_data['nft_metadata'] ?? ''), true);
             $verbatim_metadata = is_array($decoded_vm) ? $decoded_vm : array();
         }
-        error_log("Asset names ({$quantity}): " . implode(', ', $asset_names));
+        cardanomint_log("Asset names ({$quantity}): " . implode(', ', $asset_names));
 
         // Get mint-specific metadata if available
         $nft_name = $asset_name_raw;
@@ -227,17 +227,17 @@ class AnvilAPI {
             if (isset($mint_data['ipfs_cid_manual']) && !empty($mint_data['ipfs_cid_manual'])) {
                 // Priority 1: Manually pasted IPFS hash
                 $nft_image = 'ipfs://' . $mint_data['ipfs_cid_manual'];
-                error_log("Using manually pasted IPFS image: " . $nft_image);
+                cardanomint_log("Using manually pasted IPFS image: " . $nft_image);
             } elseif (isset($mint_data['ipfs_cid']) && !empty($mint_data['ipfs_cid'])) {
                 // Priority 2: Pinata IPFS CID (CIDv0 format: Qm...)
                 $nft_image = 'ipfs://' . $mint_data['ipfs_cid'];
-                error_log("Using Pinata IPFS image: " . $nft_image);
+                cardanomint_log("Using Pinata IPFS image: " . $nft_image);
             } elseif (isset($mint_data['image_id']) && $mint_data['image_id']) {
                 // Priority 3: WordPress CDN URL
                 $image_url = wp_get_attachment_url($mint_data['image_id']);
                 if ($image_url) {
                     $nft_image = $image_url;
-                    error_log("Using WordPress CDN image: " . $nft_image);
+                    cardanomint_log("Using WordPress CDN image: " . $nft_image);
                 }
             }
 
@@ -260,7 +260,7 @@ class AnvilAPI {
             if (isset($mint_data['nft_metadata']) && !empty($mint_data['nft_metadata'])) {
                 $user_metadata = json_decode($mint_data['nft_metadata'], true);
                 if (is_array($user_metadata)) {
-                    error_log("User metadata from builder: " . wp_json_encode($user_metadata, JSON_PRETTY_PRINT));
+                    cardanomint_log("User metadata from builder: " . wp_json_encode($user_metadata, JSON_PRETTY_PRINT));
 
                     // Override with user-defined values if present
                     if (isset($user_metadata['name'])) {
@@ -296,10 +296,10 @@ class AnvilAPI {
                 $policy_data = json_decode($mint_data['policy_json'], true);
                 if (isset($policy_data['schema'])) {
                     $policy_script = $policy_data['schema'];
-                    error_log("Extracted policy schema from policy_json");
+                    cardanomint_log("Extracted policy schema from policy_json");
                 } else {
-                    error_log("WARNING: policy_json exists but no 'schema' field found!");
-                    error_log("policy_json content: " . wp_json_encode($policy_data, JSON_PRETTY_PRINT));
+                    cardanomint_log("WARNING: policy_json exists but no 'schema' field found!");
+                    cardanomint_log("policy_json content: " . wp_json_encode($policy_data, JSON_PRETTY_PRINT));
                 }
             }
 
@@ -315,7 +315,7 @@ class AnvilAPI {
                     if (is_array($decoded_schema)) {
                         // policy_schema may be the bare native script or wrapped.
                         $policy_script = isset($decoded_schema['schema']) ? $decoded_schema['schema'] : $decoded_schema;
-                        error_log("Policy script loaded from imported mint_policies for {$policy_id}");
+                        cardanomint_log("Policy script loaded from imported mint_policies for {$policy_id}");
                     }
                 }
             }
@@ -405,29 +405,29 @@ class AnvilAPI {
             );
         }
 
-        error_log("CIP-25 metadata: " . wp_json_encode($cip25_metadata, JSON_PRETTY_PRINT));
+        cardanomint_log("CIP-25 metadata: " . wp_json_encode($cip25_metadata, JSON_PRETTY_PRINT));
 
         // CRITICAL DEBUG: Log the merchant payment calculation
-        error_log("===== MERCHANT PAYMENT CALCULATION =====");
-        error_log("usd_price input: " . $usd_price);
-        error_log("ada_price (from API): " . $ada_price);
-        error_log("ada_amount (NFT price in ADA): " . $ada_amount);
-        error_log("Merchant will receive (lovelace): " . intval($total_ada_amount * 1000000));
-        error_log("Customer will receive (lovelace): " . intval($receipt_amount * 1000000));
-        error_log("Note: Anvil API will add network fees automatically");
-        error_log("========================================");
+        cardanomint_log("===== MERCHANT PAYMENT CALCULATION =====");
+        cardanomint_log("usd_price input: " . $usd_price);
+        cardanomint_log("ada_price (from API): " . $ada_price);
+        cardanomint_log("ada_amount (NFT price in ADA): " . $ada_amount);
+        cardanomint_log("Merchant will receive (lovelace): " . intval($total_ada_amount * 1000000));
+        cardanomint_log("Customer will receive (lovelace): " . intval($receipt_amount * 1000000));
+        cardanomint_log("Note: Anvil API will add network fees automatically");
+        cardanomint_log("========================================");
 
         // Check if we need to mint CIP-27 royalty token (first mint for this policy)
         $royalty_rate = isset($mint_data['royalty']) ? floatval($mint_data['royalty']) : 0;
         $royalty_address = isset($mint_data['royaltyaddress']) ? $mint_data['royaltyaddress'] : '';
         $is_first_mint = !\CardanoMintPay\Models\MintModel::hasRoyaltyTokenBeenMinted($policy_id);
 
-        error_log("===== CIP-27 ROYALTY TOKEN CHECK =====");
-        error_log("royalty_rate: " . $royalty_rate . "%");
-        error_log("royalty_address: " . $royalty_address);
-        error_log("is_first_mint: " . ($is_first_mint ? 'YES' : 'NO'));
-        error_log("should_mint_royalty_token: " . (($is_first_mint && $royalty_rate > 0 && !empty($royalty_address)) ? 'YES' : 'NO'));
-        error_log("======================================");
+        cardanomint_log("===== CIP-27 ROYALTY TOKEN CHECK =====");
+        cardanomint_log("royalty_rate: " . $royalty_rate . "%");
+        cardanomint_log("royalty_address: " . $royalty_address);
+        cardanomint_log("is_first_mint: " . ($is_first_mint ? 'YES' : 'NO'));
+        cardanomint_log("should_mint_royalty_token: " . (($is_first_mint && $royalty_rate > 0 && !empty($royalty_address)) ? 'YES' : 'NO'));
+        cardanomint_log("======================================");
 
         // Build N customer-output asset entries + N CIP-25 mint entries (one
         // per NFT in this batch). Each gets a unique asset name; metadata
@@ -472,7 +472,7 @@ class AnvilAPI {
 
         // Add CIP-27 royalty token if this is the first mint and royalty is configured
         if ($is_first_mint && $royalty_rate > 0 && !empty($royalty_address)) {
-            error_log("🏷️ Adding CIP-27 royalty token to mint...");
+            cardanomint_log("🏷️ Adding CIP-27 royalty token to mint...");
 
             // CIP-27 royalty token metadata
             $royalty_metadata = array(
@@ -508,8 +508,8 @@ class AnvilAPI {
                 'quantity' => 1
             );
 
-            error_log("✅ CIP-27 royalty token added successfully!");
-            error_log("Royalty metadata: " . wp_json_encode($royalty_metadata, JSON_PRETTY_PRINT));
+            cardanomint_log("✅ CIP-27 royalty token added successfully!");
+            cardanomint_log("Royalty metadata: " . wp_json_encode($royalty_metadata, JSON_PRETTY_PRINT));
         }
 
         // Build transaction request with NFT minting using Anvil API format
@@ -538,16 +538,16 @@ class AnvilAPI {
                     'hash' => $policy_id
                 )
             );
-            error_log("Added preloaded script to transaction request");
+            cardanomint_log("Added preloaded script to transaction request");
         } else {
-            error_log("WARNING: No policy script provided - minting will likely fail!");
+            cardanomint_log("WARNING: No policy script provided - minting will likely fail!", 'error');
         }
 
-        error_log("Transaction request built successfully");
-        error_log("Full transaction request: " . wp_json_encode($transaction_request, JSON_PRETTY_PRINT));
-        error_log("Calling Anvil API to build transaction...");
+        cardanomint_log("Transaction request built successfully");
+        cardanomint_log("Full transaction request: " . wp_json_encode($transaction_request, JSON_PRETTY_PRINT));
+        cardanomint_log("Calling Anvil API to build transaction...");
         $result = self::call('transactions/build', $transaction_request, $plugin_type);
-        error_log("Anvil API call result: " . print_r($result, true));
+        cardanomint_log("Anvil API call result: " . print_r($result, true));
         return $result;
     }
     
@@ -558,7 +558,7 @@ class AnvilAPI {
     public static function submitTransaction($transaction, $signatures, $plugin_type = 'mint', $policy_id = '') {
         // For mint transactions, add policy wallet signature
         if ($plugin_type === 'mint') {
-            error_log('=== ADDING POLICY WALLET SIGNATURE ===');
+            cardanomint_log('=== ADDING POLICY WALLET SIGNATURE ===');
 
             $skey_hex = '';
             $network = get_option('cardano-mint-networkenvironment', 'preprod');
@@ -567,7 +567,7 @@ class AnvilAPI {
             if ($policy_id) {
                 $imported_policy = \CardanoMintPay\Models\MintModel::getMintPolicyByPolicyId($policy_id);
                 if ($imported_policy && !empty($imported_policy['skey_encrypted'])) {
-                    error_log('Using imported policy skey for policy: ' . $policy_id);
+                    cardanomint_log('Using imported policy skey for policy: ' . $policy_id);
                     $skey_hex = \CardanoMintPay\Helpers\EncryptionHelper::decrypt($imported_policy['skey_encrypted']);
                 }
             }
@@ -577,7 +577,7 @@ class AnvilAPI {
                 $policy_wallet = \CardanoMintPay\Models\MintModel::getPolicyWallet($network);
 
                 if (!$policy_wallet) {
-                    error_log('No policy wallet found - cannot sign transaction');
+                    cardanomint_log('No policy wallet found - cannot sign transaction', 'error');
                     return new \WP_Error(
                         'no_policy_wallet',
                         'Policy wallet not configured. Cannot sign minting transaction.'
@@ -588,7 +588,7 @@ class AnvilAPI {
             }
 
             if (empty($skey_hex)) {
-                error_log('Failed to decrypt policy wallet signing key');
+                cardanomint_log('Failed to decrypt policy wallet signing key', 'error');
                 return new \WP_Error(
                     'decryption_failed',
                     'Could not decrypt policy wallet signing key.'
@@ -596,15 +596,15 @@ class AnvilAPI {
             }
 
             // Sign transaction using cross-platform CLI helper
-            error_log('Signing transaction with policy wallet...');
+            cardanomint_log('Signing transaction with policy wallet...');
 
             $result = CardanoCLI::signTransaction($transaction, $skey_hex);
 
-            error_log('Sign CLI result: ' . json_encode($result));
+            cardanomint_log('Sign CLI result: ' . json_encode($result));
 
             if (!$result || !isset($result['success']) || !$result['success']) {
                 $error_msg = isset($result['error']) ? $result['error'] : 'Unknown signing error';
-                error_log('Transaction signing failed: ' . $error_msg);
+                cardanomint_log('Transaction signing failed: ' . $error_msg, 'error');
                 return new \WP_Error(
                     'sign_failed',
                     'Transaction signing failed: ' . $error_msg
@@ -615,10 +615,10 @@ class AnvilAPI {
             if (isset($result['witnessSetHex'])) {
                 // Prepend policy wallet witness to the signatures array
                 array_unshift($signatures, $result['witnessSetHex']);
-                error_log('✅ Policy wallet witness set added to signatures');
-                error_log('Policy witness set: ' . $result['witnessSetHex']);
+                cardanomint_log('✅ Policy wallet witness set added to signatures');
+                cardanomint_log('Policy witness set: ' . $result['witnessSetHex']);
             } else {
-                error_log('⚠️ WARNING: No witnessSetHex in signing result');
+                cardanomint_log('⚠️ WARNING: No witnessSetHex in signing result');
             }
         }
 
@@ -629,13 +629,13 @@ class AnvilAPI {
             'signatures' => is_array($signatures) ? $signatures : array()
         );
 
-        error_log('=== SUBMITTING TO ANVIL ===');
-        error_log('Transaction (first 100 chars): ' . substr($transaction, 0, 100) . '...');
-        error_log('Number of signatures: ' . count($submit_data['signatures']));
+        cardanomint_log('=== SUBMITTING TO ANVIL ===');
+        cardanomint_log('Transaction (first 100 chars): ' . substr($transaction, 0, 100) . '...');
+        cardanomint_log('Number of signatures: ' . count($submit_data['signatures']));
         foreach ($submit_data['signatures'] as $i => $sig) {
-            error_log('Signature ' . $i . ' (first 60 chars): ' . substr($sig, 0, 60) . '...');
+            cardanomint_log('Signature ' . $i . ' (first 60 chars): ' . substr($sig, 0, 60) . '...');
         }
-        error_log('===========================');
+        cardanomint_log('===========================');
 
         return self::call('transactions/submit', $submit_data, $plugin_type);
     }
@@ -677,7 +677,7 @@ class AnvilAPI {
      * @return array|WP_Error Policy data on success, WP_Error on failure
      */
     public static function generatePolicy($expiration_date = null) {
-        error_log('=== POLICY GENERATION START ===');
+        cardanomint_log('=== POLICY GENERATION START ===');
         
         // Get merchant address for policy owner
         $merchant_address = get_option('cardano_mint_merchant_address', '');
@@ -689,14 +689,14 @@ class AnvilAPI {
             );
         }
         
-        error_log('Merchant address: ' . $merchant_address);
+        cardanomint_log('Merchant address: ' . $merchant_address);
         
         // Set default expiration to 1 year from now if not provided
         if (empty($expiration_date)) {
             $expiration_date = date('Y-m-d\TH:i:s\Z', strtotime('+1 year'));
         }
         
-        error_log('Expiration date: ' . $expiration_date);
+        cardanomint_log('Expiration date: ' . $expiration_date);
         
         // Step 1: Parse address to get payment key hash
         $address_parse_response = self::call('utils/addresses/parse', array(
@@ -704,11 +704,11 @@ class AnvilAPI {
         ), 'mint');
         
         if (is_wp_error($address_parse_response)) {
-            error_log('Address parsing failed: ' . $address_parse_response->get_error_message());
+            cardanomint_log('Address parsing failed: ' . $address_parse_response->get_error_message(), 'error');
             return $address_parse_response;
         }
         
-        error_log('Address parse response: ' . wp_json_encode($address_parse_response, JSON_PRETTY_PRINT));
+        cardanomint_log('Address parse response: ' . wp_json_encode($address_parse_response, JSON_PRETTY_PRINT));
         
         // Extract payment credential key hash
         $payment_key_hash = null;
@@ -721,14 +721,14 @@ class AnvilAPI {
         }
         
         if (!$payment_key_hash) {
-            error_log('Could not extract key hash from address parse response');
+            cardanomint_log('Could not extract key hash from address parse response', 'error');
             return new \WP_Error(
                 'no_key_hash',
                 'Could not extract payment key hash from merchant address'
             );
         }
         
-        error_log('Extracted payment key hash: ' . $payment_key_hash);
+        cardanomint_log('Extracted payment key hash: ' . $payment_key_hash);
         
         // Step 2: Convert expiration date to slot number
         $expiration_timestamp_ms = strtotime($expiration_date) * 1000; // Convert to milliseconds
@@ -738,30 +738,30 @@ class AnvilAPI {
         ), 'mint');
         
         if (is_wp_error($slot_response)) {
-            error_log('Time to slot conversion failed: ' . $slot_response->get_error_message());
+            cardanomint_log('Time to slot conversion failed: ' . $slot_response->get_error_message(), 'error');
             return $slot_response;
         }
         
-        error_log('Slot response: ' . wp_json_encode($slot_response, JSON_PRETTY_PRINT));
+        cardanomint_log('Slot response: ' . wp_json_encode($slot_response, JSON_PRETTY_PRINT));
         
         $expiration_slot = $slot_response['slot'] ?? null;
         
         if (!$expiration_slot) {
-            error_log('Could not extract slot from time-to-slot response');
+            cardanomint_log('Could not extract slot from time-to-slot response', 'error');
             return new \WP_Error(
                 'no_slot',
                 'Could not convert expiration date to slot number'
             );
         }
         
-        error_log('Expiration slot: ' . $expiration_slot);
+        cardanomint_log('Expiration slot: ' . $expiration_slot);
 
         // Step 3: Get policy wallet key hash for signature requirement
         $network = get_option('cardano-mint-networkenvironment', 'preprod');
         $policy_wallet = \CardanoMintPay\Models\MintModel::getPolicyWallet($network);
 
         if (!$policy_wallet) {
-            error_log('No policy wallet found for network: ' . $network);
+            cardanomint_log('No policy wallet found for network: ' . $network);
             return new \WP_Error(
                 'no_policy_wallet',
                 'Policy wallet not configured for ' . $network . ' network. Please generate a policy wallet first.'
@@ -769,7 +769,7 @@ class AnvilAPI {
         }
 
         $policy_keyhash = $policy_wallet['payment_keyhash'];
-        error_log('Policy wallet keyhash: ' . $policy_keyhash);
+        cardanomint_log('Policy wallet keyhash: ' . $policy_keyhash);
 
         // Step 4: Create policy schema with BOTH signature requirement AND time lock
         // This requires the policy wallet signature AND minting before expiration
@@ -788,7 +788,7 @@ class AnvilAPI {
             )
         );
 
-        error_log('Policy schema (with signature + time lock): ' . wp_json_encode($policy_schema, JSON_PRETTY_PRINT));
+        cardanomint_log('Policy schema (with signature + time lock): ' . wp_json_encode($policy_schema, JSON_PRETTY_PRINT));
 
         // Step 5: Serialize the policy schema to get policy ID
         $serialize_response = self::call('utils/native-scripts/serialize', array(
@@ -796,26 +796,26 @@ class AnvilAPI {
         ), 'mint');
         
         if (is_wp_error($serialize_response)) {
-            error_log('Policy serialization failed: ' . $serialize_response->get_error_message());
+            cardanomint_log('Policy serialization failed: ' . $serialize_response->get_error_message(), 'error');
             return $serialize_response;
         }
         
-        error_log('Serialize response: ' . wp_json_encode($serialize_response, JSON_PRETTY_PRINT));
+        cardanomint_log('Serialize response: ' . wp_json_encode($serialize_response, JSON_PRETTY_PRINT));
         
         // Extract policy ID and script from response
         $policy_id = $serialize_response['policyId'] ?? null;
         $policy_script = $serialize_response['script'] ?? null;
         
         if (!$policy_id || !$policy_script) {
-            error_log('Could not extract policy ID or script from serialize response');
+            cardanomint_log('Could not extract policy ID or script from serialize response', 'error');
             return new \WP_Error(
                 'no_policy_data',
                 'Could not extract policy ID or script from serialization response'
             );
         }
         
-        error_log('=== POLICY GENERATION SUCCESS ===');
-        error_log('Policy ID: ' . $policy_id);
+        cardanomint_log('=== POLICY GENERATION SUCCESS ===');
+        cardanomint_log('Policy ID: ' . $policy_id);
 
         return array(
             'policyId' => $policy_id,

@@ -61,13 +61,13 @@ class MempoolClient {
             'body'    => $rawHex,
         ]);
         if (is_wp_error($resp)) {
-            error_log('[CardanoMint AltPay] BTC broadcast transport failed: ' . $resp->get_error_message());
+            cardanomint_log('[CardanoMint AltPay] BTC broadcast transport failed: ' . $resp->get_error_message(), 'error');
             return ['__error' => 'transport: ' . $resp->get_error_message()];
         }
         $code = (int) wp_remote_retrieve_response_code($resp);
         $body = trim(wp_remote_retrieve_body($resp));
         if ($code !== 200 || $body === '' || stripos($body, 'error') === 0) {
-            error_log('[CardanoMint AltPay] BTC broadcast HTTP ' . $code . ': ' . substr($body, 0, 400));
+            cardanomint_log('[CardanoMint AltPay] BTC broadcast HTTP ' . $code . ': ' . substr($body, 0, 400));
             return ['__error' => 'mempool ' . $code . ': ' . substr($body, 0, 220)];
         }
         // mempool.space returns the txid as plain text on success.
@@ -78,7 +78,7 @@ class MempoolClient {
         $base = $this->baseUrl($network);
         $resp = wp_remote_get($base . '/address/' . rawurlencode($address), ['timeout' => 10]);
         if (is_wp_error($resp)) {
-            error_log('[CardanoMint AltPay] mempool BTC fetch failed: ' . $resp->get_error_message());
+            cardanomint_log('[CardanoMint AltPay] mempool BTC fetch failed: ' . $resp->get_error_message(), 'error');
             return ['balance_minor' => '0', 'last_tx' => null, 'confirmations' => null];
         }
         $body = json_decode(wp_remote_retrieve_body($resp), true);

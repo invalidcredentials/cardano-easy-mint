@@ -85,13 +85,13 @@ class SolRpcClient {
         ]);
         if (is_wp_error($resp)) {
             $msg = $resp->get_error_message();
-            error_log('[CardanoMint AltPay] SOL RPC transport failed: ' . $msg);
+            cardanomint_log('[CardanoMint AltPay] SOL RPC transport failed: ' . $msg, 'error');
             return ['__error' => 'transport: ' . $msg];
         }
         $bodyRaw = wp_remote_retrieve_body($resp);
         $body = json_decode($bodyRaw, true);
         if (!is_array($body)) {
-            error_log('[CardanoMint AltPay] SOL RPC returned non-JSON: ' . substr($bodyRaw, 0, 400));
+            cardanomint_log('[CardanoMint AltPay] SOL RPC returned non-JSON: ' . substr($bodyRaw, 0, 400));
             return ['__error' => 'non-JSON response from ' . parse_url($url, PHP_URL_HOST)];
         }
         if (isset($body['error'])) {
@@ -101,7 +101,7 @@ class SolRpcClient {
             if (is_array($err) && !empty($err['data']['logs'])) {
                 $msg .= ' — ' . implode(' | ', array_slice($err['data']['logs'], -3));
             }
-            error_log('[CardanoMint AltPay] SOL RPC returned error: ' . $msg);
+            cardanomint_log('[CardanoMint AltPay] SOL RPC returned error: ' . $msg, 'error');
             return ['__error' => $msg];
         }
         return $body['result'] ?? null;

@@ -124,7 +124,7 @@ class EthRpcClient {
         ]);
         if (is_wp_error($resp)) {
             $msg = $resp->get_error_message();
-            error_log('[CardanoMint AltPay] ETH RPC transport failed: ' . $msg);
+            cardanomint_log('[CardanoMint AltPay] ETH RPC transport failed: ' . $msg, 'error');
             return ['__error' => 'transport: ' . $msg];
         }
         $body = json_decode(wp_remote_retrieve_body($resp), true);
@@ -135,7 +135,7 @@ class EthRpcClient {
             if (is_array($err) && isset($err['data'])) {
                 $msg .= ' — ' . (is_string($err['data']) ? $err['data'] : wp_json_encode($err['data']));
             }
-            error_log('[CardanoMint AltPay] ETH RPC returned error: ' . $msg);
+            cardanomint_log('[CardanoMint AltPay] ETH RPC returned error: ' . $msg, 'error');
             return ['__error' => $msg];
         }
         return $body['result'] ?? null;

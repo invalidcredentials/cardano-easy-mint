@@ -75,7 +75,7 @@ class AssetUpgradePublicController {
         try {
             return $fn();
         } catch (\Throwable $e) {
-            error_log('[asset-upgrade] uncaught: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString());
+            cardanomint_log('[asset-upgrade] uncaught: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString());
             return new \WP_REST_Response([
                 'ok'    => false,
                 'error' => 'Server error while processing the upgrade. Please try again or contact support.',

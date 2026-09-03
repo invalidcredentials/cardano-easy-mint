@@ -355,9 +355,9 @@ class RestApiController {
         if ( $tx_hash && $asset_id > 0 ) {
             $decremented = MintModel::decrementQuantity( $asset_id );
             if ( $decremented ) {
-                error_log( '[CardanoMint] REST: decremented quantity for asset ID ' . $asset_id );
+                cardanomint_log( '[CardanoMint] REST: decremented quantity for asset ID ' . $asset_id );
             } else {
-                error_log( '[CardanoMint] REST: WARNING failed to decrement quantity for asset ID ' . $asset_id );
+                cardanomint_log( '[CardanoMint] REST: WARNING failed to decrement quantity for asset ID ' . $asset_id , 'error');
             }
 
             if ( $policy_id ) {
@@ -373,7 +373,7 @@ class RestApiController {
 
             if ( $invoice_id > 0 ) {
                 ChainInvoiceModel::set_status( $invoice_id, 'consumed' );
-                error_log( '[CardanoMint AltPay] invoice ' . $invoice_id . ' marked consumed (tx ' . $tx_hash . ')' );
+                cardanomint_log( '[CardanoMint AltPay] invoice ' . $invoice_id . ' marked consumed (tx ' . $tx_hash . ')' );
             }
         }
 
