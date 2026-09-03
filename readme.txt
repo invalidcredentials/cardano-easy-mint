@@ -4,7 +4,7 @@ Tags: cardano, nft, minting, crypto, payments, bitcoin, ethereum, solana, web3
 Requires at least: 5.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 4.6.0
+Stable tag: 4.6.1
 License: AGPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/agpl-3.0.html
 
@@ -66,6 +66,9 @@ Yes. Enable Alt-Chain Payments for BTC / ETH / SOL, or the On-Ramp for card paym
 == Changelog ==
 
 See CHANGELOG.md in the plugin folder for the full history.
+
+= 4.6.1 =
+* How to Use admin page now points to the GitHub README as the up-to-date guide and shows the real plugin version.
 
 = 4.6.0 =
 * Fixed: generating a policy wallet could fatal with "Class Ed25519Compat not found" (load-order bug).

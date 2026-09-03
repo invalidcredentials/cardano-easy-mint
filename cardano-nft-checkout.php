@@ -3,7 +3,7 @@
 Plugin Name: Cardano Easy Mint
 Plugin URI: https://github.com/invalidcredentials/cardano-easy-mint
 Description: NFT minting for Cardano sites via the Anvil API. Alt-chain payments (BTC / ETH / SOL / ADA), fiat on-ramp, discount codes, batch quantity (1-5 per tx), wallet-network gate, asset upgrades (burn & re-mint), optional 2FA gate on the Payment Wallets admin page, and dashboard send-funds via Anvil + Blockfrost balance lookups for ADA custodial wallets.
-Version: 4.6.0
+Version: 4.6.1
 Author: Pb
 Author URI: https://github.com/invalidcredentials
 License: AGPL-3.0-or-later
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CARDANO_MINT_VERSION', '4.6.0');
+define('CARDANO_MINT_VERSION', '4.6.1');
 define('CARDANO_MINT_PLUGIN_FILE', __FILE__);
 define('CARDANO_MINT_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CARDANO_MINT_PLUGIN_URL', plugin_dir_url(__FILE__));

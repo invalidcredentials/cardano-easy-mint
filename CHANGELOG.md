@@ -2,6 +2,11 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.6.1] - 2026-09-03
+
+### Changed
+- The in-admin **How to Use** page now opens with a notice pointing to the GitHub README as the most up-to-date guide (the in-admin copy covers the core minting workflow and will be refreshed separately), and its banner shows the real plugin version via `CARDANO_MINT_VERSION` instead of a hard-coded string.
+
 ## [4.6.0] - 2026-09-03
 
 Cleanup release. No schema changes and no behaviour changes for customers or

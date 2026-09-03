@@ -14,8 +14,12 @@ function cardanomint_how_to_use_page() {
     <div class="wrap">
         <h1>Cardano Mint - How to Use</h1>
 
+        <div class="notice notice-info inline" style="margin: 12px 0 18px;">
+            <p><strong>Heads up:</strong> this in-admin guide covers the core minting workflow and may lag behind newer features. The most up-to-date documentation is the README on GitHub: <a href="https://github.com/invalidcredentials/cardano-easy-mint#readme" target="_blank" rel="noopener">github.com/invalidcredentials/cardano-easy-mint</a>.</p>
+        </div>
+
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h2 style="color: white; margin-top: 0;">🚀 Cardano Easy Mint v4.5</h2>
+            <h2 style="color: white; margin-top: 0;">🚀 Cardano Easy Mint v<?php echo esc_html(CARDANO_MINT_VERSION); ?></h2>
             <p style="font-size: 16px; margin-bottom: 0;">Complete NFT minting solution with dual-signature security, policy wallet management, IPFS pinning, per-wallet limits, CSV whitelist management, and automated CIP-27 royalty tokens.</p>
         </div>
 
