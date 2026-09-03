@@ -669,7 +669,7 @@
         });
         $overlay.on('click', '[data-action="totp-recovery-download"]', function () {
             const blob = new Blob([
-                'Knights Guild Mint - Two-Factor Recovery Codes\n',
+                'Cardano Easy Mint - Two-Factor Recovery Codes\n',
                 'Generated: ' + new Date().toISOString() + '\n',
                 'Each code works once. Treat them like passwords.\n\n',
                 codes.join('\n') + '\n'
@@ -677,7 +677,7 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'kg-mint-2fa-recovery-codes.txt';
+            a.download = 'cardano-mint-2fa-recovery-codes.txt';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

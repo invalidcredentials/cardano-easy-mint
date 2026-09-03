@@ -1,6 +1,8 @@
 <?php
 namespace CardanoMintPay\Helpers;
 
+if (!defined('ABSPATH')) exit;
+
 /**
  * Encryption Helper for Policy Wallet Storage
  * Uses WordPress salts for encryption key derivation

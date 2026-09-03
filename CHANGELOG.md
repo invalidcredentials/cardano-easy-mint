@@ -2,6 +2,37 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.5.3] - 2026-09-02
+
+Open-source release prep, plus one security fix.
+
+### Security
+- **The Anvil API key is no longer shipped to the browser.** The mint modal's
+  address converter used a key localized into the page (`cardanoMint.anvilApiKey`)
+  to call Anvil's `utils/addresses/parse` directly, so any visitor could read the
+  operator's key from page source. The conversion now goes through a nonce-gated,
+  rate-limited AJAX proxy (`cardano_convert_address`) and the key stays server-side.
+  Behaviour is unchanged for customers; the README's "key is never exposed" claim is
+  now actually true.
+
+### Fixed
+- **Wallet connector no longer fights a site-wide connector** (2026-06-25). The
+  embedded CIP-30 manager auto-reconnected its last wallet on every page and could
+  thrash against a nav-level connector. Init is now gated to pages that render the
+  mint widget, connector wiring is one-shot, and there is no auto-reconnect on load.
+  New `assets/weldpress-bridge.js` clears the saved wallet key at load and on a
+  WeldPress disconnect; it is a harmless no-op on sites without WeldPress.
+
+### Changed
+- Plugin header: name is now **Cardano Easy Mint** (matches the repo and README),
+  with License, Plugin URI, Requires at least, and Requires PHP fields.
+- 2FA: the authenticator issuer is the WordPress site title (falls back to
+  "Cardano Easy Mint"), and the recovery-code download no longer hard-codes a
+  site name. Existing enrollments keep working (the secret is unchanged).
+- Every PHP file now carries a direct-access guard.
+- Added `LICENSE` (AGPL-3.0-or-later), `readme.txt`, `.gitignore`, `.distignore`.
+- Removed an internal partner-onboarding note that did not belong in the repo.
+
 ## [4.5.2] - 2026-06-19
 
 Discount codes — honest rejection messages + diagnosability (after a prod incident

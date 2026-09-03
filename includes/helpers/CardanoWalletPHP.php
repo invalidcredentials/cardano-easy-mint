@@ -20,6 +20,8 @@
 
 namespace CardanoMintPay\Helpers;
 
+if (!defined('ABSPATH')) exit;
+
 if ( class_exists( __NAMESPACE__ . '\\CardanoWalletPHP', false ) ) return;
 
 require_once __DIR__ . '/Ed25519Compat.php';

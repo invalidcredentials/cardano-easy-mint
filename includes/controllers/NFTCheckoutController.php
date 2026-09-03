@@ -1,6 +1,8 @@
 <?php
 namespace CardanoMintPay\Controllers;
 
+if (!defined('ABSPATH')) exit;
+
 use CardanoMintPay\Models\MintModel;
 use CardanoMintPay\Helpers\AnvilAPI;
 use CardanoMintPay\Discounts\DiscountService;
@@ -26,6 +28,11 @@ class NFTCheckoutController {
         // Get CardanoPress connected wallet address
         add_action('wp_ajax_cardano_get_connected_wallet', [self::class, 'ajaxGetConnectedWallet']);
         add_action('wp_ajax_nopriv_cardano_get_connected_wallet', [self::class, 'ajaxGetConnectedWallet']);
+
+        // Server-side CBOR -> Bech32 address conversion (Anvil proxy). Keeps the
+        // Anvil API key on the server instead of localizing it into the page.
+        add_action('wp_ajax_cardano_convert_address', [self::class, 'ajaxConvertAddress']);
+        add_action('wp_ajax_nopriv_cardano_convert_address', [self::class, 'ajaxConvertAddress']);
 
         // Pinata IPFS upload
         add_action('wp_ajax_cardano_pin_to_ipfs', [self::class, 'ajaxPinToIPFS']);
@@ -205,6 +212,32 @@ class NFTCheckoutController {
         }
 
         wp_send_json_error(['message' => 'No wallet connected']);
+    }
+
+    /**
+     * AJAX: convert a CBOR/hex-encoded Cardano address to Bech32 via Anvil.
+     * Public (the mint modal runs for logged-out visitors) but nonce-gated and
+     * rate-limited. The Anvil API key never leaves the server.
+     */
+    public static function ajaxConvertAddress() {
+        check_ajax_referer('cardanocheckoutnonce', 'nonce');
+
+        if (!AJAXController::checkRateLimit('convert_address', 30, MINUTE_IN_SECONDS)) {
+            wp_send_json_error(['message' => 'Too many requests. Please wait a moment and try again.'], 429);
+        }
+
+        $address = isset($_POST['address']) ? trim(sanitize_text_field(wp_unslash($_POST['address']))) : '';
+        if ($address === '' || strlen($address) > 256
+            || !preg_match('/^(?:(?:0x)?[0-9a-fA-F]+|addr(?:_test)?1[0-9a-z]+)$/', $address)) {
+            wp_send_json_error(['message' => 'Invalid address.'], 400);
+        }
+
+        $converted = AnvilAPI::convertAddressToBech32($address);
+        if (!is_string($converted) || !preg_match('/^addr(?:_test)?1[0-9a-z]+$/', $converted)) {
+            wp_send_json_error(['message' => 'Address could not be converted.'], 422);
+        }
+
+        wp_send_json_success(['address' => $converted]);
     }
 
     public static function renderNFTCheckout($atts) {

@@ -1,6 +1,8 @@
 <?php
 namespace CardanoMintPay\Controllers;
 
+if (!defined('ABSPATH')) exit;
+
 class AJAXController
 {
     public static function register()

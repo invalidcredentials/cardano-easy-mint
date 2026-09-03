@@ -1,6 +1,8 @@
 <?php
 namespace CardanoMintPay\Controllers;
 
+if (!defined('ABSPATH')) exit;
+
 use CardanoMintPay\Models\MintModel;
 use CardanoMintPay\Helpers\EncryptionHelper;
 use CardanoMintPay\Helpers\CardanoCLI;

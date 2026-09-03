@@ -1,4 +1,5 @@
 <?php
+if (!defined('ABSPATH')) exit;
 // Expect $mints (array of mints); $slots_left (int); $max_slots (int); $admin_url (string)
 if (!isset($mints) || !is_array($mints)) $mints = [];
 if (!isset($slots_left)) $slots_left = 0;

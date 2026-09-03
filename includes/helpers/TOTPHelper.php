@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) exit;
 
 class TOTPHelper {
 
-    const ISSUER    = 'Knights Guild Mint';
+    const ISSUER    = 'Cardano Easy Mint'; // fallback when the site has no title
     const PERIOD    = 30;
     const DIGITS    = 6;
     const ALGORITHM = 'sha1';
@@ -57,7 +57,8 @@ class TOTPHelper {
      *   otpauth://totp/Issuer:account?secret=BASE32&issuer=Issuer&...
      */
     public static function buildOtpAuthUri(string $secret, string $accountLabel = 'admin'): string {
-        $issuer  = rawurlencode(self::ISSUER);
+        $siteName = function_exists('get_bloginfo') ? trim(wp_strip_all_tags(get_bloginfo('name'))) : '';
+        $issuer  = rawurlencode($siteName !== '' ? $siteName : self::ISSUER);
         $label   = rawurlencode($accountLabel);
         $algo    = strtoupper(self::ALGORITHM);
         $period  = self::PERIOD;

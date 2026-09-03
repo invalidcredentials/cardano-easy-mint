@@ -1,4 +1,5 @@
 <?php
+if (!defined('ABSPATH')) exit;
 // Expect: $metaurl, $expiration, $unlimited, $royalty, $royaltyaddr, $message, $editMode, $editData
 if (!isset($metaurl)) $metaurl = '';
 if (!isset($expiration)) $expiration = '';

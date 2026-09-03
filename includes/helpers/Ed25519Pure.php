@@ -1,4 +1,5 @@
 <?php
+if (!defined('ABSPATH')) exit;
 /**
  * Ed25519Pure.php
  *

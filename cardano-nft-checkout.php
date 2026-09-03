@@ -1,10 +1,16 @@
 <?php
 /*
-Plugin Name: Cardano Minting
-Description: NFT minting for Cardano sites via the Anvil API. Alt-chain payments (BTC / ETH / SOL / ADA), batch quantity (1-5 per tx), wallet-network gate, optional 2FA gate on the Payment Wallets admin page, and dashboard send-funds via Anvil + Blockfrost balance lookups for ADA custodial wallets.
-Version: 4.5.2
+Plugin Name: Cardano Easy Mint
+Plugin URI: https://github.com/invalidcredentials/cardano-easy-mint
+Description: NFT minting for Cardano sites via the Anvil API. Alt-chain payments (BTC / ETH / SOL / ADA), fiat on-ramp, discount codes, batch quantity (1-5 per tx), wallet-network gate, asset upgrades (burn & re-mint), optional 2FA gate on the Payment Wallets admin page, and dashboard send-funds via Anvil + Blockfrost balance lookups for ADA custodial wallets.
+Version: 4.5.3
 Author: Pb
+Author URI: https://github.com/invalidcredentials
+License: AGPL-3.0-or-later
+License URI: https://www.gnu.org/licenses/agpl-3.0.html
 Text Domain: cardano-minting
+Requires at least: 5.0
+Requires PHP: 7.4
 */
 
 if (!defined('ABSPATH')) {
@@ -469,9 +475,7 @@ add_action('wp_enqueue_scripts', function() {
         wp_localize_script('cardano-mint-js', 'cardanoMint', [
             'ajaxurl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('cardanocheckoutnonce'),
-            'network' => cardanomint_get_network_name(),
-            'anvilApiUrl' => get_option('cardano_mint_anvil_api_url', 'https://preprod.api.ada-anvil.app/v2/services'),
-            'anvilApiKey' => get_option('cardano_mint_anvil_api_key', '')
+            'network' => cardanomint_get_network_name()
         ]);
 });
 
@@ -991,7 +995,7 @@ function cardanomint_how_to_use_page() {
         <h1>Cardano Mint - How to Use</h1>
 
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h2 style="color: white; margin-top: 0;">🚀 Cardano Mint Plugin v3.0</h2>
+            <h2 style="color: white; margin-top: 0;">🚀 Cardano Easy Mint v4.5</h2>
             <p style="font-size: 16px; margin-bottom: 0;">Complete NFT minting solution with dual-signature security, policy wallet management, IPFS pinning, per-wallet limits, CSV whitelist management, and automated CIP-27 royalty tokens.</p>
         </div>
 
@@ -1112,7 +1116,7 @@ function cardanomint_how_to_use_page() {
 
             <h4>4. Dual-Signature Minting Flow</h4>
             <ol>
-                <li><strong>Customer Connects Wallet:</strong> Via CIP-30 (Eternl, Lace, Vespr, Nami, etc.)</li>
+                <li><strong>Customer Connects Wallet:</strong> Via CIP-30 (Eternl, Lace, Vespr, Typhon, etc.)</li>
                 <li><strong>Build Transaction:</strong> Anvil API builds the mint transaction with metadata</li>
                 <li><strong>Customer Signs:</strong> User signs with their wallet (proves ownership + payment)</li>
                 <li><strong>Policy Wallet Signs:</strong> Server adds policy wallet signature (proves minting authority)</li>
@@ -1270,7 +1274,7 @@ function cardanomint_how_to_use_page() {
                 <li><strong>CSV Whitelist Workflow:</strong> Export → Modify in Excel → Re-import (full replacement)</li>
                 <li><strong>Duplicate Policy Prevention:</strong> Plugin checks if policy ID exists before creation</li>
                 <li><strong>Price Conversion:</strong> USD prices automatically converted to ADA at mint time</li>
-                <li><strong>Wallet Support:</strong> Eternl, Lace, Vespr, Nami, Typhon, Yoroi, Flint (CIP-30 compatible)</li>
+                <li><strong>Wallet Support:</strong> Any CIP-30 wallet: Eternl, Lace, Vespr, Typhon, Yoroi, Gero and more</li>
                 <li><strong>Transaction Explorer:</strong> Links to Cardanoscan automatically generated based on network</li>
             </ul>
         </div>
@@ -1315,7 +1319,7 @@ function cardanomint_how_to_use_page() {
                 <li><strong>Wallet Standard:</strong> CIP-30 (Cardano dApp connector)</li>
                 <li><strong>Metadata Standard:</strong> CIP-25 (NFT metadata)</li>
                 <li><strong>Royalty Standard:</strong> CIP-27 (NFT royalty tokens)</li>
-                <li><strong>Policy Wallet CLI:</strong> Deno-based Cardano Wallet CLI (compiled to bin/sign-tx.exe)</li>
+                <li><strong>Policy Wallet:</strong> pure-PHP CIP-1852 derivation and Ed25519 signing (no binaries, no Composer)</li>
                 <li><strong>Encryption:</strong> AES-256-CBC with PBKDF2 key derivation</li>
                 <li><strong>Signature Encoding:</strong> CBOR hex for transaction witnesses</li>
                 <li><strong>Network Support:</strong> Mainnet and Preprod (testnet)</li>

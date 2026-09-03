@@ -39,7 +39,7 @@ if (!defined('ABSPATH')) exit;
         <tr>
             <th scope="row"><label for="kg-au-label">Label (optional)</label></th>
             <td>
-                <input type="text" id="kg-au-label" class="regular-text" placeholder="e.g. Knights v2 image refresh">
+                <input type="text" id="kg-au-label" class="regular-text" placeholder="e.g. v2 image refresh">
                 <p class="description">Short human name shown in the registered list. Defaults to <code>Policy &lt;first 10 chars&gt;</code>.</p>
             </td>
         </tr>

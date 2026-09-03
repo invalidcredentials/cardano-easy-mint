@@ -1,0 +1,8 @@
+# Excluded from the distributable plugin zip (see README "Building the zip").
+.git
+.gitignore
+.distignore
+.github
+build
+*.zip
+docs

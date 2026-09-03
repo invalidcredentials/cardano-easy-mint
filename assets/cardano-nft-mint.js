@@ -313,84 +313,39 @@
             }
         }
 
-        // Helper function to convert CBOR-encoded address to Bech32 format using Anvil API
+        // Helper function to convert a CBOR-encoded address to Bech32. The call goes
+        // through the plugin's own AJAX proxy (cardano_convert_address) so the Anvil
+        // API key stays on the server and is never shipped to the browser.
         async function convertCborToBech32ViaAnvil(cborAddress) {
             try {
                 // Check if it's already in Bech32 format
                 if (cborAddress && (cborAddress.startsWith('addr1') || cborAddress.startsWith('addr_test1'))) {
                     return cborAddress;
                 }
-                
-                // Check if Anvil API is configured
-                if (!window.cardanoMint || !window.cardanoMint.anvilApiUrl || !window.cardanoMint.anvilApiKey) {
-                    console.warn('Anvil API not configured for address conversion');
+
+                if (!window.cardanoMint || !window.cardanoMint.ajaxurl || !window.cardanoMint.nonce) {
+                    console.warn('cardanoMint config missing; using fallback address conversion');
                     return convertCborToBech32Fallback(cborAddress);
                 }
-                
-                console.log('Converting address via Anvil API:', cborAddress);
-                console.log('Anvil API URL:', window.cardanoMint.anvilApiUrl);
-                console.log('Anvil API Key present:', !!window.cardanoMint.anvilApiKey);
-                
-                const response = await fetch(`${window.cardanoMint.anvilApiUrl}/utils/addresses/parse`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Api-Key': window.cardanoMint.anvilApiKey
-                    },
-                    body: JSON.stringify({
-                        address: cborAddress
-                    })
-                });
-                
-                console.log('Anvil API response status:', response.status);
-                console.log('Anvil API response headers:', response.headers);
-                
-                if (!response.ok) {
-                    throw new Error(`Anvil API error: ${response.status} ${response.statusText}`);
-                }
-                
-                const data = await response.json();
-                
-                console.log('Anvil API response:', data);
-                
-                // Anvil returns parsed address information - check multiple possible response formats
-                if (data.address) {
-                    console.log('Successfully converted via Anvil API (address):', cborAddress, '->', data.address);
-                    return data.address;
-                } else if (data.bech32Address) {
-                    console.log('Successfully converted via Anvil API (bech32Address):', cborAddress, '->', data.bech32Address);
-                    return data.bech32Address;
-                } else if (data.parsed && data.parsed.address) {
-                    console.log('Successfully converted via Anvil API (parsed.address):', cborAddress, '->', data.parsed.address);
-                    return data.parsed.address;
-                } else if (data.result && data.result.address) {
-                    console.log('Successfully converted via Anvil API (result.address):', cborAddress, '->', data.result.address);
-                    return data.result.address;
-                } else if (data.payment && data.stake) {
-                    // Handle the payment/stake format - construct proper Bech32 address
-                    console.log('Payment/stake format detected from Anvil API');
-                    console.log('Payment:', data.payment);
-                    console.log('Stake:', data.stake);
 
-                    // The payment part contains the actual address bytes
-                    // Convert payment hex to Bech32 address
-                    try {
-                        const paymentHex = data.payment;
-                        // Create proper Bech32 address format
-                        const bech32Address = 'addr1' + paymentHex;
-                        console.log('Constructed Bech32 address from payment:', bech32Address);
-                        return bech32Address;
-                    } catch (e) {
-                        console.error('Failed to construct Bech32 from payment/stake:', e);
-                        return cborAddress;
-                    }
-                } else {
-                    console.warn('Anvil API response format not recognized:', data);
-                    throw new Error('No address returned from Anvil API - unexpected response format');
+                const fd = new FormData();
+                fd.append('action', 'cardano_convert_address');
+                fd.append('nonce', window.cardanoMint.nonce);
+                fd.append('address', cborAddress);
+
+                const response = await fetch(window.cardanoMint.ajaxurl, { method: 'POST', body: fd });
+                if (!response.ok) {
+                    throw new Error('Address conversion error: ' + response.status + ' ' + response.statusText);
                 }
-                
+
+                const data = await response.json();
+                if (data && data.success && data.data && typeof data.data.address === 'string' && data.data.address) {
+                    return data.data.address;
+                }
+                throw new Error((data && data.data && data.data.message) || 'No address returned from conversion proxy');
+
             } catch (error) {
-                console.warn('Anvil API address conversion failed:', error);
+                console.warn('Server-side address conversion failed:', error);
                 return await convertCborToBech32Fallback(cborAddress);
             }
         }

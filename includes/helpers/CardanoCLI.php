@@ -8,6 +8,8 @@
 
 namespace CardanoMintPay\Helpers;
 
+if (!defined('ABSPATH')) exit;
+
 class CardanoCLI {
 
     /**

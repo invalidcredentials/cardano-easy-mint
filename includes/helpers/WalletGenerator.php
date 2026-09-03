@@ -1,6 +1,8 @@
 <?php
 namespace CardanoMintPay\Helpers;
 
+if (!defined('ABSPATH')) exit;
+
 /**
  * Pure PHP Cardano Wallet Generator
  * Generates BIP39 mnemonic and derives Cardano keys

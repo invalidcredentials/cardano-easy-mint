@@ -1,4 +1,5 @@
 <?php
+if (!defined('ABSPATH')) exit;
 // Variables expected: $mint (object|null), $atts['nftname'], $atts['price'], $atts['policyid'], $atts['metadata_url']
 if (!isset($mint)) $mint = null;
 if (!isset($atts) || !is_array($atts)) $atts = [];
