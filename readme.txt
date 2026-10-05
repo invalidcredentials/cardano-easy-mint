@@ -8,11 +8,11 @@ Stable tag: 4.6.3
 License: AGPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/agpl-3.0.html
 
-Mint Cardano NFTs from WordPress: CIP-30 wallet connect, ADA / BTC / ETH / SOL / card payments, discount codes, and metadata upgrades.
+Mint Cardano NFTs from WordPress: CIP-30 wallet connect, ADA / BTC / ETH / SOL payments, discount codes, batch mints, and metadata upgrades.
 
 == Description ==
 
-Cardano Easy Mint turns a WordPress site into a full NFT mint. It builds and submits Cardano transactions through the [Ada Anvil](https://ada-anvil.io/) API, signs with an encrypted policy wallet on your server, and lets customers pay in ADA, in BTC / ETH / SOL, or with a credit card.
+Cardano Easy Mint turns a WordPress site into a full NFT mint. It builds and submits Cardano transactions through the [Ada Anvil](https://ada-anvil.io/) API, signs with an encrypted policy wallet on your server, and lets customers pay in ADA or in BTC / ETH / SOL.
 
 **Minting engine (the 3.0 core)**
 

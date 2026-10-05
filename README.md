@@ -1,6 +1,6 @@
 # Cardano Easy Mint
 
-**Mint Cardano NFTs from WordPress.** Native CIP-30 wallet connect, ADA / BTC / ETH / SOL / credit-card payments, discount codes, batch mints, and in-place metadata upgrades via burn and re-mint. Built on the [Ada Anvil](https://ada-anvil.io/) API with pure-PHP cryptography. No Composer, no native binaries, no wallet-connect plugin.
+**Mint Cardano NFTs from WordPress.** Native CIP-30 wallet connect, ADA / BTC / ETH / SOL payments, discount codes, batch mints, and in-place metadata upgrades via burn and re-mint. Built on the [Ada Anvil](https://ada-anvil.io/) API with pure-PHP cryptography. No Composer, no native binaries, no wallet-connect plugin.
 
 **A Pb Project** · Open source under AGPL-3.0 · Version 4.6.3 · WordPress 5.0+ · PHP 7.4+
 
