@@ -70,10 +70,11 @@ See CHANGELOG.md in the plugin folder for the full history.
 = 4.6.2 =
 * Security: the policy key now only co-signs a transaction this site built, once. Forged or replayed transactions are refused on every submit path (checkout, REST/widget, asset upgrade).
 * Security: the merchant payout address always comes from Plugin Setup, never from the browser.
-* Security: an asset-upgrade re-mint requires a submitted burn of the same asset from the same wallet, once per burn.
+* Security: an asset-upgrade re-mint requires this site's burn of the same asset, from the same wallet, to be confirmed on-chain; one re-mint per burn. The upgrade modal waits for the burn and can resume an interrupted re-mint.
 * Security: alt-pay invoices are bound to the mint they were issued for and can back only one mint; discount codes are always committed.
 * Fixed: long image URLs (e.g. CIDv1 IPFS links) and royalty addresses are split into 64-byte chunks so Anvil accepts the metadata.
 * Fixed: the BTC / ETH / SOL wallet tabs no longer fail to load on PHP 7.4.
+* Fixed: the embeddable widget can submit mints again.
 
 = 4.6.1 =
 * How to Use admin page now points to the GitHub README as the up-to-date guide and shows the real plugin version.

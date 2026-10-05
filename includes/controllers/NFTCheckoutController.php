@@ -618,6 +618,9 @@ class NFTCheckoutController {
 
         $transaction = sanitize_text_field($_POST['transaction'] ?? '');
         $signatures = json_decode(stripslashes($_POST['signatures'] ?? '[]'), true);
+        if (!is_array($signatures)) {
+            $signatures = [];
+        }
 
         if (!$transaction) {
             wp_send_json_error(['message' => 'Missing required data']);
@@ -651,11 +654,17 @@ class NFTCheckoutController {
         $response = AnvilAPI::submitTransaction($transaction, $signatures, 'mint', $policy_id, $build);
 
         if (is_wp_error($response)) {
-            MintBuildRegistry::release($build);
-            if ($invoice_id > 0) {
-                ChainInvoiceModel::set_status($invoice_id, 'funded');
+            // Hand single-use state back only when the tx certainly didn't land.
+            // A timeout or 5xx may have relayed it, so leave everything spent.
+            if (AnvilAPI::isDefiniteRejection($response)) {
+                MintBuildRegistry::release($build);
+                if ($invoice_id > 0) {
+                    ChainInvoiceModel::set_status($invoice_id, 'funded');
+                }
+                wp_send_json_error(['message' => $response->get_error_message()]);
             }
-            wp_send_json_error(['message' => $response->get_error_message()]);
+            cardanomint_log('Mint submit outcome unknown for tx ' . $build['tx_id'] . ' (asset ' . $asset_id . ', invoice ' . $invoice_id . '): ' . $response->get_error_message(), 'error');
+            wp_send_json_error(['message' => 'We could not confirm whether your mint went through. Check your wallet in a few minutes before trying again. Reference: ' . $build['tx_id']]);
         }
 
         // If transaction successful, update mint counts and quantity.

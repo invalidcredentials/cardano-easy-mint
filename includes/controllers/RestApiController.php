@@ -384,11 +384,16 @@ class RestApiController {
         $result = AnvilAPI::submitTransaction( $transaction, $witnesses, 'mint', $policy_id, $build );
 
         if ( is_wp_error( $result ) ) {
-            MintBuildRegistry::release( $build );
-            if ( $invoice_id > 0 ) {
-                ChainInvoiceModel::set_status( $invoice_id, 'funded' );
+            // Restore single-use state only when the tx certainly didn't land.
+            if ( AnvilAPI::isDefiniteRejection( $result ) ) {
+                MintBuildRegistry::release( $build );
+                if ( $invoice_id > 0 ) {
+                    ChainInvoiceModel::set_status( $invoice_id, 'funded' );
+                }
+                return new \WP_REST_Response( array( 'error' => $result->get_error_message() ), 502 );
             }
-            return new \WP_REST_Response( array( 'error' => $result->get_error_message() ), 502 );
+            cardanomint_log( '[CardanoMint] REST: mint submit outcome unknown for tx ' . $build['tx_id'] . ': ' . $result->get_error_message(), 'error' );
+            return new \WP_REST_Response( array( 'error' => 'We could not confirm whether the mint went through. Check the wallet before trying again. Reference: ' . $build['tx_id'] ), 502 );
         }
 
         // Post-mint accounting: only run when Anvil confirms a txHash.

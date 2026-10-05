@@ -312,7 +312,7 @@ Namespace: `cardano-mint/v1`. Widget keys go in the `X-CM-Api-Key` header. CORS 
 | GET | `/onramp/wallet-balance` | Nonce | Blockfrost balance passthrough |
 | POST | `/onramp/webhooks/guardarian` | IP allowlist | Guardarian status webhook |
 | POST | `/upgrade/eligible` | Public | NFTs in a wallet eligible for an upgrade |
-| POST | `/upgrade/build` | Public | Build the burn or re-mint. Time-lock gated; a re-mint needs a submitted burn of the same asset from the same wallet. |
+| POST | `/upgrade/build` | Public | Build the burn or re-mint. Time-lock gated; a re-mint needs this site's burn of the same asset, from the same wallet, to be confirmed on-chain (Blockfrost). |
 | POST | `/upgrade/submit` | Public | Submit a burn or re-mint built by `/upgrade/build`, once |
 
 Every Anvil call is made from the server. The Anvil API key is never sent to the browser.
@@ -423,7 +423,7 @@ cardano-easy-mint/
 
 ## Security
 
-- All Cardano and alt-chain signing keys are encrypted at rest (AES-256-CBC with a key derived by SHA-256 from the WordPress auth keys in `wp-config.php`; rotating those keys makes stored keys unreadable). The policy key and the BTC / ETH / SOL keys are wiped with `sodium_memzero` after signing and are never logged.
+- All Cardano and alt-chain signing keys are encrypted at rest (AES-256-CBC with a key derived by SHA-256 from the WordPress auth keys in `wp-config.php`; rotating those keys makes stored keys unreadable). The policy key and the BTC / ETH / SOL keys are wiped with `sodium_memzero` after signing (best effort) and are never logged.
 - **The policy key only co-signs transactions this site built.** Every build is recorded server-side by transaction id; submit claims that record once (30-minute window) and refuses anything else. Post-mint accounting (supply, per-wallet counts, alt-pay invoice, discount commit) comes from that record, not from the request.
 - Every Anvil call is server-side. The Anvil API key is never localized into a page or sent to a browser.
 - Server-authoritative amounts: client-supplied prices and payout addresses are ignored. The database price and the configured Merchant Wallet Address are the source of truth.

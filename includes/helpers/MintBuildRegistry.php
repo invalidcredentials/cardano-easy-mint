@@ -100,16 +100,23 @@ class MintBuildRegistry {
     public static function sweep(): void {
         global $wpdb;
         foreach ([self::BUILD_PREFIX, self::BURN_PREFIX] as $prefix) {
-            $rows = $wpdb->get_results($wpdb->prepare(
-                "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 500",
-                $wpdb->esc_like($prefix) . '%'
-            ), ARRAY_A);
-            foreach ((array) $rows as $row) {
-                $ctx = json_decode((string) $row['option_value'], true);
-                if (!is_array($ctx) || (int) ($ctx['expires'] ?? 0) <= time()) {
-                    $wpdb->delete($wpdb->options, ['option_name' => $row['option_name']]);
+            // Page by option_id so live rows can't hide expired ones behind a LIMIT.
+            $after = 0;
+            do {
+                $rows = $wpdb->get_results($wpdb->prepare(
+                    "SELECT option_id, option_name, option_value FROM {$wpdb->options}
+                     WHERE option_name LIKE %s AND option_id > %d ORDER BY option_id LIMIT 500",
+                    $wpdb->esc_like($prefix) . '%',
+                    $after
+                ), ARRAY_A);
+                foreach ((array) $rows as $row) {
+                    $after = (int) $row['option_id'];
+                    $ctx = json_decode((string) $row['option_value'], true);
+                    if (!is_array($ctx) || (int) ($ctx['expires'] ?? 0) <= time()) {
+                        $wpdb->delete($wpdb->options, ['option_name' => $row['option_name']]);
+                    }
                 }
-            }
+            } while (count((array) $rows) === 500);
         }
     }
 

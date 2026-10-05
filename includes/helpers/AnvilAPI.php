@@ -40,8 +40,9 @@ class AnvilAPI {
         $body = wp_remote_retrieve_body($response);
         $decoded = json_decode($body, true);
         
-        if (wp_remote_retrieve_response_code($response) !== 200) {
-            return new \WP_Error('api_error', $decoded['message'] ?? 'API request failed');
+        $status = (int) wp_remote_retrieve_response_code($response);
+        if ($status !== 200) {
+            return new \WP_Error('api_error', $decoded['message'] ?? 'API request failed', ['status' => $status]);
         }
         
         return $decoded;
@@ -67,7 +68,46 @@ class AnvilAPI {
      */
     public static function chunkMetadataString($string) {
         $string = (string) $string;
-        return strlen($string) > 64 ? str_split($string, 64) : $string;
+        if (strlen($string) <= 64) {
+            return $string;
+        }
+        // Split on character boundaries so a multibyte UTF-8 character is
+        // never cut in half; each chunk stays within 64 bytes.
+        $chars = preg_split('//u', $string, -1, PREG_SPLIT_NO_EMPTY);
+        if ($chars === false) {
+            return str_split($string, 64);
+        }
+        $chunks = [];
+        $current = '';
+        foreach ($chars as $char) {
+            if (strlen($current) + strlen($char) > 64) {
+                $chunks[] = $current;
+                $current = '';
+            }
+            $current .= $char;
+        }
+        if ($current !== '') {
+            $chunks[] = $current;
+        }
+        return $chunks;
+    }
+
+    /**
+     * True when a submitTransaction() error means the tx definitely did NOT
+     * reach the chain: it was refused before sending, or the node rejected it.
+     * Transport failures and 5xx responses are ambiguous (the tx may have been
+     * relayed), so callers must not hand back single-use state for those.
+     */
+    public static function isDefiniteRejection(\WP_Error $error) {
+        if (in_array($error->get_error_code(), ['unknown_build', 'no_policy_wallet', 'decryption_failed', 'sign_failed'], true)) {
+            return true;
+        }
+        if (preg_match('/TxValidationError|TxSubmitFail|ValidationErrorInCardanoMode/', $error->get_error_message())) {
+            return true;
+        }
+        $data = $error->get_error_data();
+        $status = is_array($data) ? (int) ($data['status'] ?? 0) : 0;
+        return $error->get_error_code() === 'api_error' && $status >= 400 && $status < 500;
     }
 
     /**
@@ -574,6 +614,8 @@ class AnvilAPI {
      */
     public static function submitTransaction($transaction, $signatures, $plugin_type = 'mint', $policy_id = '', ?array $build = null) {
         // For mint transactions, add policy wallet signature
+        $signatures = is_array($signatures) ? array_values(array_filter($signatures, 'is_string')) : array();
+
         if ($plugin_type === 'mint') {
             $tx_id = MintBuildRegistry::txId((string) $transaction);
             if ($tx_id === '' || !is_array($build) || !hash_equals((string) ($build['tx_id'] ?? ''), $tx_id)) {

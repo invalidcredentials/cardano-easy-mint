@@ -143,10 +143,16 @@ class CardanoTransactionSignerPHP
     {
         $tx_bytes = ($tx_hex !== '' && ctype_xdigit($tx_hex) && strlen($tx_hex) % 2 === 0) ? hex2bin($tx_hex) : false;
         if ($tx_bytes === false || $tx_bytes === '') return '';
+        // Truncated input makes the CBOR walker read past the end; treat any
+        // notice it raises as "not a transaction" instead of printing it.
+        set_error_handler(function () { throw new \RuntimeException('malformed CBOR'); });
         try {
-            return bin2hex(sodium_crypto_generichash(self::extractBodyBytes($tx_bytes), '', 32));
+            $body = self::extractBodyBytes($tx_bytes);
+            return $body === '' ? '' : bin2hex(sodium_crypto_generichash($body, '', 32));
         } catch (\Throwable $e) {
             return '';
+        } finally {
+            restore_error_handler();
         }
     }
 

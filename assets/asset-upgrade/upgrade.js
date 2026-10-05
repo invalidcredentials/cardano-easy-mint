@@ -82,7 +82,11 @@
         })
         .then(parseJson)
         .then(function (build) {
-            if (!build.ok) throw new Error((opts.label + ' build: ') + (build.error || 'failed'));
+            if (!build.ok) {
+                var buildErr = new Error((opts.label + ' build: ') + (build.error || 'failed'));
+                buildErr.stage = build.stage || '';
+                throw buildErr;
+            }
             setBtn(modal, 'Sign the ' + opts.label + ' in your wallet…');
             // CIP-30 partial sign returns the customer's witness set (hex).
             // We send the UNSIGNED tx + that witness; the server adds the
@@ -99,7 +103,11 @@
                         signatures:  [witnessSetHex],
                     }),
                 }).then(parseJson).then(function (sub) {
-                    if (!sub.ok) throw new Error((opts.label + ' submit: ') + (sub.error || 'failed'));
+                    if (!sub.ok) {
+                        var subErr = new Error((opts.label + ' submit: ') + (sub.error || 'failed'));
+                        subErr.stage = sub.stage || '';
+                        throw subErr;
+                    }
                     return { build: build, tx_hash: sub.tx_hash };
                 });
             });
@@ -115,40 +123,88 @@
         if (btn) { btn.disabled = false; btn.textContent = text || 'Upgrade NFT'; }
     }
 
+    // A submitted burn is remembered per asset (the server honours it for 2h),
+    // so a declined re-mint signature or a closed tab resumes at the re-mint
+    // instead of trying to burn an NFT that's already gone.
+    var PENDING_BURN_TTL_MS = 2 * 60 * 60 * 1000;
+    function pendingBurnKey(sel) { return 'cem_upg_burn_' + sel.policy_id + '_' + sel.asset_name; }
+    function readPendingBurn(sel) {
+        try {
+            var p = JSON.parse(localStorage.getItem(pendingBurnKey(sel)) || 'null');
+            if (p && p.log_id && (Date.now() - p.at) < PENDING_BURN_TTL_MS) return p;
+        } catch (e) {}
+        return null;
+    }
+    function savePendingBurn(sel, logId, txHash) {
+        try { localStorage.setItem(pendingBurnKey(sel), JSON.stringify({ log_id: logId, tx_hash: txHash, at: Date.now() })); } catch (e) {}
+    }
+    function clearPendingBurn(sel) {
+        try { localStorage.removeItem(pendingBurnKey(sel)); } catch (e) {}
+    }
+
+    // The server only builds the re-mint once the burn is in a block (~20s to
+    // a couple of minutes), so poll while it reports 'burn_pending'.
+    function remintWhenBurnConfirmed(modal, state, changeAddr, burnLogId) {
+        var attempts = 0;
+        function attempt() {
+            return buildSignSubmit(modal, state, changeAddr, {
+                step: 'remint',
+                burn_log_id: burnLogId,
+                label: 're-mint transaction',
+            }).catch(function (err) {
+                if (err && err.stage === 'burn_pending' && attempts++ < 60) {
+                    setBtn(modal, 'Waiting for the burn to confirm on-chain…');
+                    return new Promise(function (resolve) { setTimeout(resolve, 10000); }).then(attempt);
+                }
+                throw err;
+            });
+        }
+        return attempt();
+    }
+
     function runUpgrade(modal, state) {
         if (!state.selected || !state.api) {
             showError(modal, 'Wallet or selection missing. Restart the modal.');
             return;
         }
         setBtn(modal, 'Preparing…');
+        var sel = state.selected;
 
         // CIP-30 getChangeAddress() returns a hex payment address used to fund
         // both txs and receive the re-minted NFT.
         state.api.getChangeAddress()
             .then(function (changeAddr) {
-                // 1) Burn the existing asset.
-                return buildSignSubmit(modal, state, changeAddr, { step: 'burn', label: 'burn transaction' })
-                    .then(function (burn) {
-                        // 2) Re-mint the same asset name with the new metadata,
-                        //    linked to the burn so its resolved metadata carries
-                        //    over. NOTE: back-to-back per design — if the wallet
-                        //    is short on spare UTxOs, Anvil may reselect the
-                        //    burn's input and the re-mint can fail; retry then.
-                        return buildSignSubmit(modal, state, changeAddr, {
-                            step: 'remint',
-                            burn_log_id: burn.build.log_id,
-                            label: 're-mint transaction',
-                        }).then(function (remint) {
-                            return { burn: burn, remint: remint };
+                var pending = readPendingBurn(sel);
+                // 1) Burn the existing asset, unless an earlier burn is waiting.
+                var burnStep = pending
+                    ? Promise.resolve({ build: { log_id: pending.log_id }, tx_hash: pending.tx_hash })
+                    : buildSignSubmit(modal, state, changeAddr, { step: 'burn', label: 'burn transaction' })
+                        .then(function (burn) {
+                            savePendingBurn(sel, burn.build.log_id, burn.tx_hash);
+                            return burn;
                         });
-                    });
+                return burnStep.then(function (burn) {
+                    // 2) Re-mint the same asset name with the new metadata,
+                    //    linked to the burn so its resolved metadata carries over.
+                    return remintWhenBurnConfirmed(modal, state, changeAddr, burn.build.log_id)
+                        .then(function (remint) {
+                            clearPendingBurn(sel);
+                            return { burn: burn, remint: remint };
+                        }, function (err) {
+                            // The server no longer recognises this burn (expired or
+                            // already re-minted): forget it so the next try starts clean.
+                            if (err && err.stage === 'burn_check') clearPendingBurn(sel);
+                            throw err;
+                        });
+                });
             })
             .then(function (res) {
                 resetBtn(modal, 'Upgrade NFT');
                 showSuccess(modal, res.remint.tx_hash, res.burn.tx_hash);
             })
             .catch(function (err) {
-                resetBtn(modal, 'Upgrade NFT');
+                // With a burn on record, the button resumes at the re-mint.
+                resetBtn(modal, readPendingBurn(sel) ? 'Finish upgrade (re-mint)' : 'Upgrade NFT');
                 showError(modal, (err && err.message) ? err.message : String(err));
             });
     }

@@ -193,6 +193,15 @@ class AssetUpgradeService {
             || (string) $burn['wallet'] !== $customer_address_bech) {
             return ['ok' => false, 'error' => 'Re-mint needs a submitted burn of this asset from this wallet. Start the upgrade again.', 'stage' => 'burn_check'];
         }
+        // Mempool acceptance isn't enough: the holder could race a conflicting
+        // spend of the same NFT and keep it. Wait until the burn is in a block.
+        $burn_chain = BlockfrostClient::getTransaction((string) ($burn['tx_hash'] ?? ''), $network);
+        if (empty($burn_chain['ok'])) {
+            if ((int) ($burn_chain['status'] ?? 0) === 404) {
+                return ['ok' => false, 'error' => 'Waiting for the burn to confirm on-chain.', 'stage' => 'burn_pending'];
+            }
+            return ['ok' => false, 'error' => 'Could not check the burn on-chain: ' . ($burn_chain['error'] ?? 'unknown'), 'stage' => 'burn_lookup'];
+        }
 
         // Prefer the metadata stashed at burn time; fall back to re-resolving
         // (works for full mode — patch mode needs the stash since the on-chain
@@ -363,8 +372,11 @@ class AssetUpgradeService {
         // round-trip).
         $resp = AnvilAPI::submitTransaction($transaction, $signatures, 'mint', (string) $build['policy_id'], $build);
         if (is_wp_error($resp)) {
-            MintBuildRegistry::release($build);
-            if ($burn) MintBuildRegistry::restoreBurn((int) $build['burn_log_id'], $burn);
+            // Restore single-use state only when the tx certainly didn't land.
+            if (AnvilAPI::isDefiniteRejection($resp)) {
+                MintBuildRegistry::release($build);
+                if ($burn) MintBuildRegistry::restoreBurn((int) $build['burn_log_id'], $burn);
+            }
             self::log_event(null, $log['policy_id'], $log['asset_name'], $log['wallet_address'], null, 'failed', 'anvil submit: ' . $resp->get_error_message());
             return ['ok' => false, 'error' => 'Anvil submit failed: ' . $resp->get_error_message(), 'stage' => 'anvil_submit'];
         }

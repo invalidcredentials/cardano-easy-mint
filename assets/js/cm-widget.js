@@ -481,7 +481,7 @@
         }).then(function (buildResult) {
             if (buildResult.error) throw new Error(buildResult.error);
 
-            var txCbor = buildResult.transaction || buildResult.tx || '';
+            var txCbor = buildResult.complete || buildResult.transaction || buildResult.tx || '';
             if (!txCbor) throw new Error('No transaction returned from server.');
 
             var assetId  = Number(buildResult.asset_id || 0);

@@ -15,17 +15,21 @@ changes; build records live in `wp_options` and expire on their own.
   transaction of their own. Every build is now recorded server-side by
   transaction id (`MintBuildRegistry`). `AnvilAPI::submitTransaction()` refuses
   to co-sign a mint without a matching record, and each record can be claimed
-  once, within 30 minutes. A failed submit puts the record back so the
-  customer can retry. The policy (which selects the signing key) and all
+  once, within 30 minutes. A submit the node definitely rejected puts the
+  record back so the customer can retry; a timeout or server error leaves it
+  (and any alt-pay invoice or burn marker) spent, since the tx may have been
+  relayed, and logs the tx id for reconciliation. The policy (which selects the signing key) and all
   post-mint accounting (asset, quantity, wallet, invoice, discount) now come
   from the build record instead of request fields.
 - **The checkout build took the merchant payout address from the browser.** It
   now always uses the Merchant Wallet Address from Plugin Setup.
 - **Asset-upgrade re-mint didn't require a burn.** `/upgrade/build` with
   `step=remint` minted a fresh copy of any registered asset to any address. A
-  re-mint now needs a burn of the same asset, by the same wallet, that was
-  accepted at submit, and each burn allows one re-mint. The metadata stash is
-  kept until the re-mint lands, so a declined signature can be retried.
+  re-mint now needs a burn of the same asset, by the same wallet, that this
+  site submitted and that Blockfrost shows in a block; each burn allows one
+  re-mint. The upgrade modal waits for the burn to confirm, remembers it per
+  asset for 2 hours, and resumes at the re-mint after a declined signature or
+  a closed tab instead of trying to burn again.
 - **Alt-pay invoices** are now bound to the mint they were issued for, cover
   exactly one asset, and are moved from `funded` to `consumed` atomically before
   submit, so one payment can't back several builds.
@@ -34,7 +38,8 @@ changes; build records live in `wp_options` and expire on their own.
   Discounted builds expire before their reservation can be released.
 - The checkout build rejects a `policy_id` that doesn't belong to the posted
   asset.
-- The decrypted policy key is wiped with `sodium_memzero` after signing.
+- The decrypted policy key is wiped with `sodium_memzero` after signing
+  (best effort; PHP may hold other copies).
 
 ### Fixed
 - Metadata strings over 64 bytes failed the Anvil build ("Max metadata string
@@ -44,6 +49,11 @@ changes; build records live in `wp_options` and expire on their own.
   description is truncated to 64 bytes.
 - The BTC / ETH / SOL tabs on Payment Wallets used the PHP 8 nullsafe operator
   and failed to parse on PHP 7.4.
+- The embeddable widget read `transaction` from the `/mint/build` response,
+  which Anvil names `complete`, so it could never submit. It reads `complete`
+  now.
+- `MintBuildRegistry::sweep()` pages through all records, and malformed
+  transaction hex no longer prints PHP warnings.
 
 ### Docs
 - README REST table and Security section corrected: auth on `/mint/*` is nonce
