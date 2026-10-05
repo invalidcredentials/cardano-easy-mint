@@ -2,7 +2,7 @@
 
 **Mint Cardano NFTs from WordPress.** Native CIP-30 wallet connect, ADA / BTC / ETH / SOL / credit-card payments, discount codes, batch mints, and in-place metadata upgrades via burn and re-mint. Built on the [Ada Anvil](https://ada-anvil.io/) API with pure-PHP cryptography. No Composer, no native binaries, no wallet-connect plugin.
 
-**A Pb Project** · Open source under AGPL-3.0 · Version 4.6.2 · WordPress 5.0+ · PHP 7.4+
+**A Pb Project** · Open source under AGPL-3.0 · Version 4.6.3 · WordPress 5.0+ · PHP 7.4+
 
 ---
 
@@ -64,7 +64,7 @@
 
 ## Quick start
 
-1. **Install.** Download the release zip from the [Releases](https://github.com/invalidcredentials/cardano-easy-mint/releases) page, then in WordPress go to **Plugins → Add New → Upload Plugin**, upload, and **Activate**. (Or copy the `cardano-easy-mint/` folder into `wp-content/plugins/`.)
+1. **Install.** Download **[cardano-easy-mint.zip](https://github.com/invalidcredentials/cardano-easy-mint/releases/latest/download/cardano-easy-mint.zip)** (also at the top of this repo and on every [release](https://github.com/invalidcredentials/cardano-easy-mint/releases)). In WordPress go to **Plugins → Add New → Upload Plugin**, upload it, and **Activate**. Don't use GitHub's green **Code → Download ZIP** button: that archive unpacks to `cardano-easy-mint-master/` and includes repository files, so WordPress installs it under the wrong folder name.
 2. **Add keys.** Go to **Cardano Mint → Plugin Setup**. Paste your Anvil API key, set your merchant wallet address, and choose **Preprod** to start.
 3. **Create a policy wallet.** Go to **Cardano Mint → Policy Wallet** and click generate. **Write down the 24-word seed phrase now. It is shown exactly once.**
 4. **Create a collection.** Go to **Cardano Mint → Mint Manager**, fill in variant A, generate a policy, and save.
@@ -257,7 +257,7 @@ Setup: paste your Guardarian API key (encrypted at rest), pick production or sta
 
 ### Discount codes
 
-**Cardano Mint → Discounts.** Create a campaign scoped to a policy: percent off or fixed USD off, single-use or multi-use, optional expiry, then generate a batch of unique 8-character codes or one shared code (`VIPERS20`). Customers enter it on the payment step. For ADA it applies at build time; for alt-pay it is baked into the quoted crypto amount. Network fees, the service fee, and the 1 ADA receipt are never discounted.
+**Cardano Mint → Discounts.** Create a campaign scoped to a policy: percent off or fixed USD off, single-use or multi-use, optional expiry, then generate a batch of unique 8-character codes or one shared code (`LAUNCH20`). Customers enter it on the payment step. For ADA it applies at build time; for alt-pay it is baked into the quoted crypto amount. Network fees, the service fee, and the 1 ADA receipt are never discounted.
 
 Uses follow a reserve → commit → release lifecycle so a single-use code cannot be double-spent or burned by an abandoned checkout. Rejections carry a machine reason (`not_found`, `expired`, `exhausted`, `wrong_collection`, …) and are logged server-side.
 
@@ -397,7 +397,6 @@ cardano-easy-mint/
 │   └── views/                         mint-manager, active-mints-list, policy-wallet-manager,
 │                                      nft-mint-form (modal markup), widget-deployer,
 │                                      altpay/, discounts/, asset-upgrade/
-└── docs/                              Build plans, locked decisions, historical release notes
 ```
 
 ---
@@ -488,11 +487,11 @@ The distributable is the plugin folder zipped with `cardano-easy-mint/` as the t
 
 ```powershell
 # from the folder that contains cardano-easy-mint/
-& "C:\Program Files\7-Zip\7z.exe" a -tzip cardano-easy-mint-4.6.2.zip cardano-easy-mint\ `
+& "C:\Program Files\7-Zip\7z.exe" a -tzip cardano-easy-mint.zip cardano-easy-mint\ `
   -xr!.git -xr!.gitignore -xr!.distignore -xr!docs -xr!build -xr!*.zip
 ```
 
-Upload the result through **Plugins → Add New → Upload Plugin**.
+Upload the result through **Plugins → Add New → Upload Plugin**. For a release, commit the zip to the repo root as `cardano-easy-mint.zip` (replacing the previous one) and attach it to the GitHub release under that same name, so the `releases/latest/download/cardano-easy-mint.zip` link keeps working.
 
 ---
 
@@ -500,7 +499,7 @@ Upload the result through **Plugins → Add New → Upload Plugin**.
 
 Issues and pull requests are welcome. A few pointers:
 
-- Read `docs/DECISIONS.md` before changing anything that looks deliberate. Locked decisions are there for a reason; supersede them with a new entry rather than quietly changing them.
+- Before changing anything that looks deliberate, check `CHANGELOG.md` and the comments around it; most non-obvious choices (two-transaction upgrades, server-side pricing, append-only audit logs) are explained there.
 - Keep the crypto pure PHP. No Composer, no native binaries.
 - Every new AJAX or REST endpoint needs a nonce or key check and `$wpdb->prepare()`. Log through `cardanomint_log()`, never bare `error_log()`.
 - Test on preprod. Note the WordPress and PHP versions you tested on in the PR.
@@ -510,6 +509,6 @@ Issues and pull requests are welcome. A few pointers:
 
 ## Credits and license
 
-Built with the [Ada Anvil](https://ada-anvil.io/) API and [Weld](https://github.com/ADA-Anvil/weld) wallet-connection patterns. Alt-chain crypto vendored from `simplito/elliptic-php` (secp256k1, MIT) and `kornrunner/keccak` (MIT). Metadata formatting: [MetaDraft](https://metadraft.io/).
+Built with the [Ada Anvil](https://ada-anvil.io/) API and [Weld](https://github.com/ADA-Anvil/weld) wallet-connection patterns. Alt-chain crypto (secp256k1, Keccak-256, RLP) is pure PHP in `includes/altpay/lib/`, following the approach of `simplito/elliptic-php` and `kornrunner/keccak` (both MIT). Metadata formatting: [MetaDraft](https://metadraft.io/).
 
 Licensed under the **GNU Affero General Public License v3.0 or later**. See [LICENSE](LICENSE). You can use, modify, and redistribute it, including commercially, as long as you keep the license and share your source when you distribute it or run a modified version as a network service. Attribution to the original project is appreciated.

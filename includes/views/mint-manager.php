@@ -534,7 +534,7 @@ if ($editMode && $editData) {
                 <span id="cem-import-file-name" style="margin-left:8px; color:#666; font-size:12px;"></span>
             </p>
             <textarea id="cem-import-json" rows="10" style="width:100%; font-family:monospace; font-size:12px;"
-                placeholder='[ { "assetName": "Viperions_0002", "metadata": { "name": "Abyssal Champion", "image": "ipfs://...", "attributes": { } } } ]'></textarea>
+                placeholder='[ { "assetName": "MyCollection_0002", "metadata": { "name": "Abyssal Champion", "image": "ipfs://...", "attributes": { } } } ]'></textarea>
             <p>
                 <button type="button" class="button" id="cem-import-parse">Parse &amp; Preview</button>
                 <span id="cem-import-summary" style="margin-left:10px; font-weight:600;"></span>

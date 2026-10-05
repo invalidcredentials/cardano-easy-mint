@@ -3,7 +3,7 @@
 Plugin Name: Cardano Easy Mint
 Plugin URI: https://github.com/invalidcredentials/cardano-easy-mint
 Description: NFT minting for Cardano sites via the Anvil API. Alt-chain payments (BTC / ETH / SOL / ADA), fiat on-ramp, discount codes, batch quantity (1-5 per tx), wallet-network gate, asset upgrades (burn & re-mint), optional 2FA gate on the Payment Wallets admin page, and dashboard send-funds via Anvil + Blockfrost balance lookups for ADA custodial wallets.
-Version: 4.6.2
+Version: 4.6.3
 Author: Pb
 Author URI: https://github.com/invalidcredentials
 License: AGPL-3.0-or-later
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CARDANO_MINT_VERSION', '4.6.2');
+define('CARDANO_MINT_VERSION', '4.6.3');
 define('CARDANO_MINT_PLUGIN_FILE', __FILE__);
 define('CARDANO_MINT_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CARDANO_MINT_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -87,8 +87,8 @@ require_once plugin_dir_path(__FILE__) . 'includes/controllers/OnrampAdminContro
 
 // Asset Upgrade (burn & re-mint). Adds a per-asset CIP-25 refresh flow:
 // customer connects wallet, picks an eligible NFT under a configured policy,
-// signs one tx that burns the old token and re-mints the same asset name
-// with new metadata. See docs/BUILD_PLAN.md.
+// signs a burn of the old token, then a re-mint of the same asset name with
+// new metadata (two txs: the ledger rejects a net-zero mint in one).
 require_once plugin_dir_path(__FILE__) . 'includes/asset-upgrade/AssetUpgradeInstaller.php';
 require_once plugin_dir_path(__FILE__) . 'includes/asset-upgrade/MetadataResolver.php';
 require_once plugin_dir_path(__FILE__) . 'includes/asset-upgrade/AssetUpgradeService.php';
@@ -99,7 +99,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/controllers/AssetUpgradePubli
 
 // Discount codes (e-commerce coupons). Admin creates campaigns of codes per
 // policy; a code reduces the MSRP component of the price server-side (fees +
-// receipt untouched) at build time. See docs/DISCOUNT_CODES_BUILD_PLAN.md.
+// receipt untouched) at build time.
 require_once plugin_dir_path(__FILE__) . 'includes/discounts/DiscountInstaller.php';
 require_once plugin_dir_path(__FILE__) . 'includes/models/DiscountModel.php';
 require_once plugin_dir_path(__FILE__) . 'includes/discounts/DiscountService.php';

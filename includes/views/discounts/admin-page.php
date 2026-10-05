@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) exit;
             <form id="cmd-create-form" onsubmit="return false;">
                 <label class="cmd-field">
                     <span>Campaign title</span>
-                    <input type="text" name="title" placeholder="Vipers Trial Mint $5 Mints" required>
+                    <input type="text" name="title" placeholder="Launch Week $5 Mints" required>
                 </label>
 
                 <label class="cmd-field">
@@ -69,8 +69,8 @@ if (!defined('ABSPATH')) exit;
                     <input type="number" name="batch_count" min="1" max="5000" step="1" value="50">
                 </label>
                 <label class="cmd-field" data-when="shared" hidden>
-                    <span>Shared code (e.g. VIPERS20)</span>
-                    <input type="text" name="shared_code" placeholder="VIPERS20" maxlength="32">
+                    <span>Shared code (e.g. LAUNCH20)</span>
+                    <input type="text" name="shared_code" placeholder="LAUNCH20" maxlength="32">
                 </label>
 
                 <label class="cmd-field">

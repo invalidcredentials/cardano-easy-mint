@@ -29,7 +29,7 @@ if (!defined('ABSPATH')) exit;
  *
  * The audit log (wp_cardano_asset_upgrade_log) is append-only: every event
  * (built / submitted / confirmed / failed) is its own row; rows are never
- * mutated. See docs/BUILD_PLAN.md (decision AU-D8).
+ * mutated.
  *
  * Anvil payload shape: the mint array with both a negative-quantity (burn)
  * and positive-quantity (re-mint) entry under the same policy is the

@@ -2,6 +2,27 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.6.3] - 2026-10-05
+
+Housekeeping. No code-path changes.
+
+### Added
+- A ready-to-install `cardano-easy-mint.zip` at the repo root and on every release
+  (`releases/latest/download/cardano-easy-mint.zip`). It unpacks to `cardano-easy-mint/`,
+  so **Plugins → Add New → Upload Plugin** installs it under the right slug.
+
+### Changed
+- The Asset Upgrades admin page no longer says the spec editor and customer flow are
+  "coming in later phases" (they shipped in 4.3); it explains how to use them.
+- Example placeholders on the Discounts and Mint Manager pages are generic.
+- The README install step links the plugin zip directly and warns against GitHub's
+  "Download ZIP" button. The alt-chain crypto credit now says the code follows
+  `simplito/elliptic-php` and `kornrunner/keccak` rather than vendoring them.
+
+### Removed
+- `docs/` (internal build plans, decision placeholders and superseded launch notes).
+  Their still-relevant content is in this changelog and the README.
+
 ## [4.6.2] - 2026-10-05
 
 Security release. **Every site running 4.6.1 or earlier should update.** No schema
@@ -194,10 +215,10 @@ Discount codes **phase 2: alt-pay** (BTC / ETH / SOL).
 
 ## [4.5.0] - 2026-06-18
 
-Adds **discount codes** — e-commerce-style coupons for the mint checkout (phase 1: ADA path). See `docs/DISCOUNT_CODES_BUILD_PLAN.md`.
+Adds **discount codes** — e-commerce-style coupons for the mint checkout (phase 1: ADA path).
 
 ### Added
-- **Discounts admin page** (top-level, under Cardano Mint). Create a *campaign* of codes scoped to a policy: pick the policy, a discount type (**% off** or **fixed $ off**), single- or multi-use, expiry, then generate either a **batch** of unique 8-char codes or **one shared code** (e.g. `VIPERS20`). Lists campaigns with code/redemption counts, a per-campaign detail view (codes + redemptions), pause/activate, disable-code, and CSV export. Gated by `manage_options` + nonces (no TOTP — DC-D6).
+- **Discounts admin page** (top-level, under Cardano Mint). Create a *campaign* of codes scoped to a policy: pick the policy, a discount type (**% off** or **fixed $ off**), single- or multi-use, expiry, then generate either a **batch** of unique 8-char codes or **one shared code** (e.g. `LAUNCH20`). Lists campaigns with code/redemption counts, a per-campaign detail view (codes + redemptions), pause/activate, disable-code, and CSV export. Gated by `manage_options` + nonces (no TOTP — DC-D6).
 - **"Have a code?" entry in the mint modal** (Step 2, ADA checkout). Validates live and rewrites the order summary with a green **Discount** line and adjusted total; the network/service fees and the 1 ADA receipt are never discounted.
 - **Three tables**: `wp_cm_discount_campaigns`, `wp_cm_discount_codes`, `wp_cm_discount_redemptions` (idempotent installer, JIT `maybe_install`).
 - **Server-authoritative pricing** (DC-D1): the code only reduces the MSRP component of the DB price at build time (`ajaxBuildMintTransaction`); the client never supplies a price. Because the +1 ADA/asset minting fee is added *after* the USD→ADA conversion, fees survive even a 100%-off code (DC-D2).
@@ -362,15 +383,11 @@ Adds the **Asset Upgrade** subsystem: a per-asset CIP-25 metadata refresh flow t
 - New table `wp_cardano_asset_upgrade_log` (append-only event log; see audit log above).
 - Both created on activation and re-verified via the same `admin_init` JIT-migration pattern AltPay uses.
 
-### Docs
-- `docs/BUILD_PLAN.md` — feature design, architecture, phases, schema, REST contract, locked decisions, acceptance criteria, OOS list.
-- `docs/DECISIONS.md` — the 8 locked decisions (AU-D1 through AU-D8) the feature is built on.
-
 ### Known unverified
 - CIP-30 `signTx(tx, true)` return shape varies (Eternl returns a witness set, Lace returns a full tx). The server hands whatever the wallet returned to `CardanoCLI::signTransaction`; if a sandbox round shows we need to merge witness sets explicitly, we'll add a witness-merge step.
 
 ### Verified
-- **Anvil burn payload shape**: `quantity: -1` on a CIP-25 mint entry (same shape as our existing positive-quantity mint flow, just with the negative). Confirmed by pb 2026-05-27 — the mint endpoint accepts negative quantities natively.
+- **Anvil burn payload shape**: `quantity: -1` on a CIP-25 mint entry (same shape as our existing positive-quantity mint flow, just with the negative). Confirmed against Anvil: the mint endpoint accepts negative quantities natively.
 
 ## [4.1.0] - 2026-05-01
 
@@ -425,11 +442,10 @@ Major release. Adds alt-chain payments (BTC / ETH / SOL), batch mints (1-5 per t
 - Receipt info note (`.receipt-info-text`) was unreadable in the dark theme: a duplicate light-theme rule was using `!important` and winning over the intended dark-theme rule. Removed the dupe.
 - After a successful alt-pay mint, reopening the modal could leave the receipt in alt-pay state with the previous SOL/ETH/BTC totals showing, even though the customer had no active off-chain payment. The `kg:mint-completed` event now wipes the overlay and the modal-open click handler also re-runs `restoreAdaReceipt()` defensively. Server-side build path was always correct; this was UI-only but could mislead a customer into clicking Confirm.
 - Quantity stepper no longer interferes with the alt-pay receipt overlay (it's hidden when alt-pay is active and `recomputeReviewTotals()` bails immediately).
-- Tower template detection elsewhere in the theme is now resilient to filename-hierarchy template loading. (Theme change, but unblocked the network-gate work since Tower is wallet-aware.)
 
 ### Security
 - Parent xprvs encrypted at rest with `EncryptionHelper` (AES-256-CBC, WP-salts derived). Decrypted material is wiped via `sodium_memzero` + `unset` in a `try/finally`.
-- Alt-pay quote endpoint rate-limited to 5/IP/min and 50/IP/day. Each quote consumes one HD child index, so this also bounds address-graph enumeration cost.
+- Alt-pay quote endpoint rate-limited to 5/IP/min. Each quote consumes one HD child index, so this also bounds address-graph enumeration cost.
 - Server-authoritative amounts: build path ignores client-supplied prices; the DB record is authoritative.
 - Address reuse: never. Cancelled invoices do not free the HD index.
 

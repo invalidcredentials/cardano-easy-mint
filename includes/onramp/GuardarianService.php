@@ -14,8 +14,8 @@ if (!defined('ABSPATH')) exit;
  *
  * Design notes:
  *   - The customer's connected Cardano wallet IS the payout address. There
- *     is never a "operator wallet" payout in this flow — see docs/onramp.md
- *     for the architectural reasoning.
+ *     is never an operator-wallet payout in this flow, so the site never
+ *     custodies on-ramp funds.
  *   - The mint trigger is NOT here. Once Guardarian reports `finished`, the
  *     customer's wallet will receive ADA, and the existing client-side mint
  *     flow takes over (the modal polls Blockfrost until the wallet shows

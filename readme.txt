@@ -4,7 +4,7 @@ Tags: cardano, nft, minting, crypto, payments, bitcoin, ethereum, solana, web3
 Requires at least: 5.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 4.6.2
+Stable tag: 4.6.3
 License: AGPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/agpl-3.0.html
 
@@ -37,7 +37,7 @@ All cryptography (Ed25519, secp256k1, Keccak-256, Bech32, Base58) is pure PHP. N
 
 == Installation ==
 
-1. Upload the `cardano-easy-mint` folder to `/wp-content/plugins/`, or upload the release zip via Plugins > Add New > Upload Plugin.
+1. Download cardano-easy-mint.zip (https://github.com/invalidcredentials/cardano-easy-mint/releases/latest/download/cardano-easy-mint.zip), then upload it via Plugins > Add New > Upload Plugin. Or copy the `cardano-easy-mint` folder to `/wp-content/plugins/`.
 2. Activate **Cardano Easy Mint**.
 3. Go to **Cardano Mint > Plugin Setup** and enter your Anvil API key, merchant address, and network. Start on preprod.
 4. Go to **Policy Wallet** and generate a wallet. Save the seed phrase; it is shown once.
@@ -66,6 +66,10 @@ Yes. Enable Alt-Chain Payments for BTC / ETH / SOL, or the On-Ramp for card paym
 == Changelog ==
 
 See CHANGELOG.md in the plugin folder for the full history.
+
+= 4.6.3 =
+* Ready-to-install cardano-easy-mint.zip on the main branch and on every release.
+* Admin copy and example placeholders cleaned up; internal planning docs removed from the repository.
 
 = 4.6.2 =
 * Security: the policy key now only co-signs a transaction this site built, once. Forged or replayed transactions are refused on every submit path (checkout, REST/widget, asset upgrade).

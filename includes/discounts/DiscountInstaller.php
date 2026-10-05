@@ -10,12 +10,12 @@ if (!defined('ABSPATH')) exit;
  * AltPayInstaller idempotent install + maybe_install pattern so it's safe to
  * call from activation, admin_init, and from the top of model writes.
  *
- * Three tables (see docs/DISCOUNT_CODES_BUILD_PLAN.md):
+ * Three tables:
  *
  *   wp_cm_discount_campaigns    the rule + tracking unit (one "campaign" /
- *                               program, e.g. "Vipers Trial Mint $5 Mints")
+ *                               program, e.g. "Launch Week $5 Mints")
  *   wp_cm_discount_codes        the code strings (one row per code; a batch of
- *                               50 is 50 rows, a shared code like VIPERS20 is 1)
+ *                               50 is 50 rows, a shared code like LAUNCH20 is 1)
  *   wp_cm_discount_redemptions  reservations + committed redemptions (the audit
  *                               + results trail that powers the campaign report)
  *

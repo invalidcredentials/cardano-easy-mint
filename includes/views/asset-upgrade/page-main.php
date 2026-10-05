@@ -3,17 +3,16 @@ if (!defined('ABSPATH')) exit;
 /**
  * Asset Upgrades — main admin page.
  *
- * Phase 2 surface only: register a policy, list registered policies, view
- * the asset list for a registered policy. Spec editor and customer
- * frontend land in later phases. See docs/BUILD_PLAN.md.
+ * Register a policy, list registered policies, and view the asset list for
+ * a registered policy. Each policy's spec is edited on page-edit.php.
  */
 ?>
 <div class="wrap kg-asset-upgrade">
     <h1>Asset Upgrades</h1>
     <p class="description">
         Burn-and-re-mint flow for refreshing CIP-25 metadata on existing NFTs.
-        Register a policy below; later phases add the spec editor and customer-facing
-        upgrade widget. See <code>docs/BUILD_PLAN.md</code> for the full design.
+        Register a policy below, then open it to define the new metadata and set it active.
+        Customers upgrade their NFTs with the <code>[cardano-upgrade]</code> shortcode.
     </p>
 
     <h2>Register a policy</h2>

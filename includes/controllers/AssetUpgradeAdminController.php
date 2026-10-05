@@ -2,14 +2,12 @@
 /**
  * Asset Upgrade admin controller.
  *
- * Phase 2 surface: register a policy by ID, decode its time-lock state via
- * Blockfrost, count assets, and list registered policies. The actual spec
- * editor (patch JSON / per-asset CSV) lands in phase 3; eligibility +
- * burn-and-re-mint frontend lands in phase 4+.
+ * Register a policy by ID, decode its time-lock state via Blockfrost, count
+ * its assets, and edit its upgrade spec (policy-wide patch JSON and per-asset
+ * overrides). The customer-facing flow is AssetUpgradePublicController.
  *
  * Gated by `manage_options` + the same TOTP unlock transient that gates
  * the Payment Wallets page, so one 2FA enrollment covers both surfaces.
- * See docs/BUILD_PLAN.md for the feature design and locked decisions.
  */
 
 namespace CardanoMintPay\Controllers;

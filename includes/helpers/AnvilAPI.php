@@ -211,7 +211,7 @@ class AnvilAPI {
         // to merchant + receipts to customer + the minted assets. Honored when
         // callers set `_altpay_service_fee_ada_override` on $mint_data. The
         // override is the per-asset service fee; we still multiply by qty so
-        // a batch buy pays N service fees (per pb 2026-04-29).
+        // a batch buy pays N service fees.
         $altpay_override_used = false;
         if (is_array($mint_data) && !empty($mint_data['_altpay_service_fee_ada_override'])) {
             $altpay_override_used = true;

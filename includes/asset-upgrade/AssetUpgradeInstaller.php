@@ -14,8 +14,6 @@ if (!defined('ABSPATH')) exit;
  * Tables:
  *   wp_cardano_asset_upgrades       per-asset (or policy-wide) upgrade specs
  *   wp_cardano_asset_upgrade_log    append-only customer upgrade attempts
- *
- * See docs/BUILD_PLAN.md for the feature design.
  */
 class AssetUpgradeInstaller {
 

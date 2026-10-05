@@ -8,7 +8,15 @@ Thumbs.db
 # Build output
 /build/
 *.zip
+# ...except the ready-to-install plugin zip kept at the repo root
+!/cardano-easy-mint.zip
 
 # Local secrets / scratch
 .env
 *.local.php
+
+# local GitHub token used once for a release, never committed
+.gh-token
+
+# GitHub security-log exports
+export-*.json.gz

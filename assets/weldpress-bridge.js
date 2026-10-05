@@ -8,8 +8,7 @@
  * (e.g. VESPR) — which then looked like the wallet "never logging out" and the
  * mint connector trying to reconnect it on its own.
  *
- * This bridge does what knightswap-otc/assets/js/weldpress-bridge.js does for
- * OTC — makes the mint connector defer to the nav:
+ * This bridge makes the mint connector defer to the nav connector:
  *
  *   1. Clears `cardano_mint_last_wallet` synchronously at script eval, before
  *      cardano-nft-mint.js initializes — so a stale wallet from a previous

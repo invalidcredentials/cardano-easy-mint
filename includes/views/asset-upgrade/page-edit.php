@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) exit;
  * the patch at resolve time.
  *
  * AJAX-driven; the controller's ajax_get_policy_edit endpoint populates
- * everything on load. See docs/BUILD_PLAN.md for the full design.
+ * everything on load.
  */
 ?>
 <div class="wrap kg-asset-upgrade kg-au-edit">
