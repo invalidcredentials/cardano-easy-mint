@@ -16,7 +16,8 @@ $networks       = AltPayAdminController::chainNetworks($chain);
 $wallets        = ChainWalletModel::list_for_chain($chain, /*include_archived*/ true);
 $active_wallets = array_values(array_filter($wallets, fn($w) => empty($w['archived'])));
 $rate           = \CardanoMintPay\AltPay\PriceOracle::getRate($chain);
-$expected_for_1usd = AltPayService::provider($chain)?->expectedAmountMinor(1.0, max(0.000001, $rate));
+$chain_provider    = AltPayService::provider($chain);
+$expected_for_1usd = $chain_provider ? $chain_provider->expectedAmountMinor(1.0, max(0.000001, $rate)) : null;
 ?>
 
 <div class="kg-altpay-chain" data-chain="<?php echo esc_attr($chain); ?>">

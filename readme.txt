@@ -4,7 +4,7 @@ Tags: cardano, nft, minting, crypto, payments, bitcoin, ethereum, solana, web3
 Requires at least: 5.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 4.6.1
+Stable tag: 4.6.2
 License: AGPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/agpl-3.0.html
 
@@ -66,6 +66,14 @@ Yes. Enable Alt-Chain Payments for BTC / ETH / SOL, or the On-Ramp for card paym
 == Changelog ==
 
 See CHANGELOG.md in the plugin folder for the full history.
+
+= 4.6.2 =
+* Security: the policy key now only co-signs a transaction this site built, once. Forged or replayed transactions are refused on every submit path (checkout, REST/widget, asset upgrade).
+* Security: the merchant payout address always comes from Plugin Setup, never from the browser.
+* Security: an asset-upgrade re-mint requires a submitted burn of the same asset from the same wallet, once per burn.
+* Security: alt-pay invoices are bound to the mint they were issued for and can back only one mint; discount codes are always committed.
+* Fixed: long image URLs (e.g. CIDv1 IPFS links) and royalty addresses are split into 64-byte chunks so Anvil accepts the metadata.
+* Fixed: the BTC / ETH / SOL wallet tabs no longer fail to load on PHP 7.4.
 
 = 4.6.1 =
 * How to Use admin page now points to the GitHub README as the up-to-date guide and shows the real plugin version.

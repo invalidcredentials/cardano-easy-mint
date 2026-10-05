@@ -135,6 +135,22 @@ class CardanoTransactionSignerPHP
     }
 
     /**
+     * Transaction id (blake2b-256 of the original body bytes) as hex, or ''
+     * if the hex isn't a parseable transaction. Identical for Anvil's
+     * `complete` and `stripped` forms of the same tx, since both share a body.
+     */
+    public static function txId(string $tx_hex): string
+    {
+        $tx_bytes = ($tx_hex !== '' && ctype_xdigit($tx_hex) && strlen($tx_hex) % 2 === 0) ? hex2bin($tx_hex) : false;
+        if ($tx_bytes === false || $tx_bytes === '') return '';
+        try {
+            return bin2hex(sodium_crypto_generichash(self::extractBodyBytes($tx_bytes), '', 32));
+        } catch (\Throwable $e) {
+            return '';
+        }
+    }
+
+    /**
      * Extract original transaction body bytes WITHOUT decoding/re-encoding
      * This preserves the exact CBOR structure including tags
      */

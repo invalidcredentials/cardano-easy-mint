@@ -3,7 +3,7 @@
 Plugin Name: Cardano Easy Mint
 Plugin URI: https://github.com/invalidcredentials/cardano-easy-mint
 Description: NFT minting for Cardano sites via the Anvil API. Alt-chain payments (BTC / ETH / SOL / ADA), fiat on-ramp, discount codes, batch quantity (1-5 per tx), wallet-network gate, asset upgrades (burn & re-mint), optional 2FA gate on the Payment Wallets admin page, and dashboard send-funds via Anvil + Blockfrost balance lookups for ADA custodial wallets.
-Version: 4.6.1
+Version: 4.6.2
 Author: Pb
 Author URI: https://github.com/invalidcredentials
 License: AGPL-3.0-or-later
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CARDANO_MINT_VERSION', '4.6.1');
+define('CARDANO_MINT_VERSION', '4.6.2');
 define('CARDANO_MINT_PLUGIN_FILE', __FILE__);
 define('CARDANO_MINT_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CARDANO_MINT_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -28,6 +28,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/helpers/AnvilAPI.php';
 require_once plugin_dir_path(__FILE__) . 'includes/helpers/PinataAPI.php';
 require_once plugin_dir_path(__FILE__) . 'includes/helpers/EncryptionHelper.php';
 require_once plugin_dir_path(__FILE__) . 'includes/helpers/CardanoCLI.php';
+require_once plugin_dir_path(__FILE__) . 'includes/helpers/MintBuildRegistry.php';
 require_once plugin_dir_path(__FILE__) . 'includes/helpers/CardanoWalletPHP.php';
 require_once plugin_dir_path(__FILE__) . 'includes/helpers/PolicyImport.php';
 require_once plugin_dir_path(__FILE__) . 'includes/helpers/ApiKeys.php';
@@ -321,6 +322,8 @@ add_action('init', function() {
 // single-use code isn't stuck. Reuses the 'fiveminutes' interval defined for the
 // asset-upgrade tick.
 add_action('cardano_discount_sweep_tick', ['\\CardanoMintPay\\Discounts\\DiscountService', 'sweep']);
+// Same tick drops expired mint build records (see MintBuildRegistry).
+add_action('cardano_discount_sweep_tick', ['\\CardanoMintPay\\Helpers\\MintBuildRegistry', 'sweep']);
 add_action('init', function () {
     if (!wp_next_scheduled('cardano_discount_sweep_tick')) {
         wp_schedule_event(time() + 120, 'fiveminutes', 'cardano_discount_sweep_tick');

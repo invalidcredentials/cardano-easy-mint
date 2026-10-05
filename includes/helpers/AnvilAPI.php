@@ -61,6 +61,16 @@ class AnvilAPI {
     }
 
     /**
+     * Split a metadata string longer than Cardano's 64-byte limit into an
+     * array of chunks, the form CIP-25 allows for `image` and `src` (and
+     * CIP-27 for `addr`). Shorter strings pass through unchanged.
+     */
+    public static function chunkMetadataString($string) {
+        $string = (string) $string;
+        return strlen($string) > 64 ? str_split($string, 64) : $string;
+    }
+
+    /**
      * Convert CBOR-encoded address to Bech32 format using Anvil API
      */
     public static function convertAddressToBech32($address, $plugin_type = 'mint') {
@@ -381,10 +391,10 @@ class AnvilAPI {
         //   3. AV assets without a preview omit the top-level pair so
         //      the metadata isn't ambiguous (no thumbnail rendered).
         if ($preview_image !== '') {
-            $cip25_metadata['image']     = $preview_image;
+            $cip25_metadata['image']     = self::chunkMetadataString($preview_image);
             $cip25_metadata['mediaType'] = $preview_media_type;
         } elseif (!$is_av_asset) {
-            $cip25_metadata['image']     = $nft_image;
+            $cip25_metadata['image']     = self::chunkMetadataString($nft_image);
             $cip25_metadata['mediaType'] = $nft_media_type;
         }
 
@@ -400,7 +410,7 @@ class AnvilAPI {
                 array(
                     'name'      => $nft_name,
                     'mediaType' => $nft_media_type,
-                    'src'       => $nft_image
+                    'src'       => self::chunkMetadataString($nft_image)
                 )
             );
         }
@@ -478,10 +488,12 @@ class AnvilAPI {
             $royalty_metadata = array(
                 '777' => array(  // CIP-27 standard label
                     'rate' => strval($royalty_rate / 100),  // Convert 5.5% to "0.055"
-                    'addr' => $royalty_address
+                    // Metadata strings max out at 64 bytes; CIP-27 allows the
+                    // address as an array of chunks when it is longer.
+                    'addr' => self::chunkMetadataString($royalty_address)
                 ),
                 'name' => 'Royalty Token',
-                'description' => 'CIP-27 Royalty Token for ' . ($mint_data['title'] ?? 'Collection'),
+                'description' => self::truncateMetadata('CIP-27 Royalty Token for ' . ($mint_data['title'] ?? 'Collection')),
                 'minted_at' => current_time('c'),
                 'royalty_standard' => 'CIP-27'
             );
@@ -553,11 +565,26 @@ class AnvilAPI {
     
     /**
      * Submit transaction to blockchain
-     * For mint transactions, adds policy wallet signature before submission
+     * For mint transactions, adds policy wallet signature before submission.
+     *
+     * $build is the record MintBuildRegistry::claim() returned for this exact
+     * tx. The policy key signs whatever body it is given, so a mint submit
+     * without a matching server-side build record is refused, and the policy
+     * (which picks the signing key) comes from that record, not the client.
      */
-    public static function submitTransaction($transaction, $signatures, $plugin_type = 'mint', $policy_id = '') {
+    public static function submitTransaction($transaction, $signatures, $plugin_type = 'mint', $policy_id = '', ?array $build = null) {
         // For mint transactions, add policy wallet signature
         if ($plugin_type === 'mint') {
+            $tx_id = MintBuildRegistry::txId((string) $transaction);
+            if ($tx_id === '' || !is_array($build) || !hash_equals((string) ($build['tx_id'] ?? ''), $tx_id)) {
+                cardanomint_log('Refusing to co-sign a mint tx that has no matching server build record', 'error');
+                return new \WP_Error(
+                    'unknown_build',
+                    'This transaction was not built by this site, or was already submitted. Please start again.'
+                );
+            }
+            $policy_id = (string) ($build['policy_id'] ?? '');
+
             cardanomint_log('=== ADDING POLICY WALLET SIGNATURE ===');
 
             $skey_hex = '';
@@ -599,6 +626,9 @@ class AnvilAPI {
             cardanomint_log('Signing transaction with policy wallet...');
 
             $result = CardanoCLI::signTransaction($transaction, $skey_hex);
+            if (function_exists('sodium_memzero')) {
+                sodium_memzero($skey_hex);
+            }
 
             cardanomint_log('Sign CLI result: ' . json_encode($result));
 

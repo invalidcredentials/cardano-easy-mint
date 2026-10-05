@@ -5,6 +5,7 @@ use CardanoMintPay\Helpers\AnvilAPI;
 use CardanoMintPay\Helpers\BlockfrostClient;
 use CardanoMintPay\Helpers\CardanoCLI;
 use CardanoMintPay\Helpers\EncryptionHelper;
+use CardanoMintPay\Helpers\MintBuildRegistry;
 use CardanoMintPay\Models\MintModel;
 
 if (!defined('ABSPATH')) exit;
@@ -163,6 +164,14 @@ class AssetUpgradeService {
             // Stash resolved metadata for the re-mint leg (2h TTL).
             set_transient('cem_upg_meta_' . $log_id, $target_meta, 2 * HOUR_IN_SECONDS);
 
+            // Only this exact tx may be co-signed at submit.
+            if (!MintBuildRegistry::remember($unsigned['tx'], [
+                'kind' => 'upgrade', 'step' => 'burn', 'log_id' => $log_id,
+                'policy_id' => $policy_id, 'asset_name' => $asset_name, 'wallet' => $customer_address_bech,
+            ])) {
+                return ['ok' => false, 'error' => 'Could not register the burn transaction.', 'stage' => 'register'];
+            }
+
             return [
                 'ok'              => true,
                 'step'            => 'burn',
@@ -174,6 +183,17 @@ class AssetUpgradeService {
         }
 
         // step === 'remint'.
+        // A re-mint is only allowed after this wallet's burn of this same asset
+        // was accepted at submit (MintBuildRegistry::markBurned). Without it,
+        // anyone could mint a fresh copy of any registered asset.
+        $burn = $burn_log_id > 0 ? MintBuildRegistry::burnRecord($burn_log_id) : null;
+        if (!$burn
+            || strcasecmp((string) $burn['policy_id'], $policy_id) !== 0
+            || strcasecmp((string) $burn['asset_name'], $asset_name) !== 0
+            || (string) $burn['wallet'] !== $customer_address_bech) {
+            return ['ok' => false, 'error' => 'Re-mint needs a submitted burn of this asset from this wallet. Start the upgrade again.', 'stage' => 'burn_check'];
+        }
+
         // Prefer the metadata stashed at burn time; fall back to re-resolving
         // (works for full mode — patch mode needs the stash since the on-chain
         // metadata is already burned).
@@ -216,7 +236,14 @@ class AssetUpgradeService {
         if (!$unsigned['ok']) return $unsigned;
 
         $log_id = self::log_event($upgrade_id, $policy_id, $asset_name, $customer_address_bech, null, 'built', 'remint');
-        if ($burn_log_id > 0) delete_transient('cem_upg_meta_' . $burn_log_id);
+        // The metadata stash is kept until the re-mint is submitted, so a
+        // declined signature can be retried after a patch-mode burn.
+        if (!MintBuildRegistry::remember($unsigned['tx'], [
+            'kind' => 'upgrade', 'step' => 'remint', 'log_id' => $log_id, 'burn_log_id' => $burn_log_id,
+            'policy_id' => $policy_id, 'asset_name' => $asset_name, 'wallet' => $customer_address_bech,
+        ])) {
+            return ['ok' => false, 'error' => 'Could not register the re-mint transaction.', 'stage' => 'register'];
+        }
 
         return [
             'ok'              => true,
@@ -308,13 +335,36 @@ class AssetUpgradeService {
         if (!$log)                               return ['ok' => false, 'error' => 'Build log row not found', 'stage' => 'log_lookup'];
         if ((string) $log['status'] !== 'built') return ['ok' => false, 'error' => 'Build row is in status ' . $log['status'] . ', not built. Refresh and retry.', 'stage' => 'log_state'];
 
+        // Only the exact tx build() produced for this log row gets co-signed,
+        // and only once.
+        $build = MintBuildRegistry::claim($transaction);
+        if ($build && (($build['kind'] ?? '') !== 'upgrade' || (int) ($build['log_id'] ?? 0) !== $log_id)) {
+            MintBuildRegistry::release($build);
+            $build = null;
+        }
+        if (!$build) {
+            return ['ok' => false, 'error' => 'This upgrade transaction expired or was already submitted. Start the upgrade again.', 'stage' => 'build_record'];
+        }
+
+        // One re-mint per burn: take the burn marker now, restore it on failure.
+        $burn = null;
+        if (($build['step'] ?? '') === 'remint') {
+            $burn = MintBuildRegistry::takeBurn((int) ($build['burn_log_id'] ?? 0));
+            if (!$burn) {
+                MintBuildRegistry::release($build);
+                return ['ok' => false, 'error' => 'This burn has already been re-minted.', 'stage' => 'burn_check'];
+            }
+        }
+
         // Reuse the standard mint submit path: it adds the policy-wallet
         // witness (imported skey wins, internal wallet fallback) to the
         // signatures array and submits {transaction, signatures} to Anvil.
         // This is the heaviest step (pure-PHP policy sign + Anvil submit
         // round-trip).
-        $resp = AnvilAPI::submitTransaction($transaction, $signatures, 'mint', (string) $log['policy_id']);
+        $resp = AnvilAPI::submitTransaction($transaction, $signatures, 'mint', (string) $build['policy_id'], $build);
         if (is_wp_error($resp)) {
+            MintBuildRegistry::release($build);
+            if ($burn) MintBuildRegistry::restoreBurn((int) $build['burn_log_id'], $burn);
             self::log_event(null, $log['policy_id'], $log['asset_name'], $log['wallet_address'], null, 'failed', 'anvil submit: ' . $resp->get_error_message());
             return ['ok' => false, 'error' => 'Anvil submit failed: ' . $resp->get_error_message(), 'stage' => 'anvil_submit'];
         }
@@ -325,6 +375,16 @@ class AssetUpgradeService {
         }
 
         self::log_event(null, $log['policy_id'], $log['asset_name'], $log['wallet_address'], $tx_hash, 'submitted', null);
+
+        if (($build['step'] ?? '') === 'burn') {
+            // The chain accepted the burn: this wallet may now re-mint the asset once.
+            MintBuildRegistry::markBurned($log_id, [
+                'policy_id' => $build['policy_id'], 'asset_name' => $build['asset_name'],
+                'wallet' => $build['wallet'], 'tx_hash' => $tx_hash,
+            ]);
+        } else {
+            delete_transient('cem_upg_meta_' . (int) ($build['burn_log_id'] ?? 0));
+        }
         return ['ok' => true, 'tx_hash' => $tx_hash];
     }
 

@@ -2,7 +2,7 @@
 
 **Mint Cardano NFTs from WordPress.** Native CIP-30 wallet connect, ADA / BTC / ETH / SOL / credit-card payments, discount codes, batch mints, and in-place metadata upgrades via burn and re-mint. Built on the [Ada Anvil](https://ada-anvil.io/) API with pure-PHP cryptography. No Composer, no native binaries, no wallet-connect plugin.
 
-**A Pb Project** · Open source under AGPL-3.0 · Version 4.6.1 · WordPress 5.0+ · PHP 7.4+
+**A Pb Project** · Open source under AGPL-3.0 · Version 4.6.2 · WordPress 5.0+ · PHP 7.4+
 
 ---
 
@@ -222,7 +222,7 @@ All under the **Cardano Mint** menu.
 
 ### ADA (default)
 
-Customer connects a CIP-30 wallet, signs once, and pays the USD price converted to ADA at that moment plus the network fee. The merchant output goes to your **Merchant Wallet Address**. All amounts are server-authoritative.
+Customer connects a CIP-30 wallet, signs once, and pays the USD price converted to ADA at that moment plus the network fee. The merchant output goes to your **Merchant Wallet Address** from Plugin Setup. Price, payee, and quantity are all decided server-side.
 
 ### Batch mints (1 to 5 per transaction)
 
@@ -299,10 +299,10 @@ Namespace: `cardano-mint/v1`. Widget keys go in the `X-CM-Api-Key` header. CORS 
 |---|---|---|---|
 | GET | `/collections` | Public | List active collections |
 | GET | `/collections/{id}` | Public | Collection detail |
-| GET | `/config` | Public | Site network and merchant info |
+| GET | `/config` | Public | Site network and site name |
 | GET | `/price` | Public | Live ADA/USD price |
-| POST | `/mint/build` | API key | Build the mint transaction (Anvil proxy). Optional `invoice_id` and `discount_code`. Network-gated. |
-| POST | `/mint/submit` | API key | Submit the signed transaction; the policy signature is added server-side. |
+| POST | `/mint/build` | Nonce or API key | Build the mint transaction (Anvil proxy). Optional `invoice_id`. Network-gated. |
+| POST | `/mint/submit` | Nonce or API key | Submit a transaction built by `/mint/build`, once. The policy signature is added server-side; any other transaction is refused. |
 | POST | `/altpay/quote` | Public, rate-limited | Issue a deposit address and price lock on BTC / ETH / SOL. Network-gated. |
 | GET | `/altpay/status` | Public | Poll invoice status, observed amount, confirmations |
 | POST | `/altpay/cancel` | Public | Cancel a pending invoice |
@@ -311,9 +311,9 @@ Namespace: `cardano-mint/v1`. Widget keys go in the `X-CM-Api-Key` header. CORS 
 | GET | `/onramp/sessions/{partner_link_id}` | Nonce | Poll on-ramp status |
 | GET | `/onramp/wallet-balance` | Nonce | Blockfrost balance passthrough |
 | POST | `/onramp/webhooks/guardarian` | IP allowlist | Guardarian status webhook |
-| POST | `/upgrade/eligible` | Nonce | NFTs in a wallet eligible for an upgrade |
-| POST | `/upgrade/build` | Nonce | Build the burn or re-mint. Time-lock gated. |
-| POST | `/upgrade/submit` | Nonce | Submit the signed burn or re-mint |
+| POST | `/upgrade/eligible` | Public | NFTs in a wallet eligible for an upgrade |
+| POST | `/upgrade/build` | Public | Build the burn or re-mint. Time-lock gated; a re-mint needs a submitted burn of the same asset from the same wallet. |
+| POST | `/upgrade/submit` | Public | Submit a burn or re-mint built by `/upgrade/build`, once |
 
 Every Anvil call is made from the server. The Anvil API key is never sent to the browser.
 
@@ -423,11 +423,12 @@ cardano-easy-mint/
 
 ## Security
 
-- All Cardano and alt-chain signing keys are encrypted at rest (AES-256-CBC, key derived from WordPress salts). Decrypted keys live only in a local variable inside `try/finally` with `unset` and `sodium_memzero`, and are never logged.
+- All Cardano and alt-chain signing keys are encrypted at rest (AES-256-CBC with a key derived by SHA-256 from the WordPress auth keys in `wp-config.php`; rotating those keys makes stored keys unreadable). The policy key and the BTC / ETH / SOL keys are wiped with `sodium_memzero` after signing and are never logged.
+- **The policy key only co-signs transactions this site built.** Every build is recorded server-side by transaction id; submit claims that record once (30-minute window) and refuses anything else. Post-mint accounting (supply, per-wallet counts, alt-pay invoice, discount commit) comes from that record, not from the request.
 - Every Anvil call is server-side. The Anvil API key is never localized into a page or sent to a browser.
-- Server-authoritative amounts: client-supplied prices are ignored. The database price is the source of truth.
+- Server-authoritative amounts: client-supplied prices and payout addresses are ignored. The database price and the configured Merchant Wallet Address are the source of truth.
 - All AJAX endpoints use WordPress nonces; all admin POSTs go through `check_ajax_referer`. The public address-conversion proxy and alt-pay quotes are rate-limited per IP.
-- All database queries use `$wpdb->prepare()`.
+- Every database query that takes request input uses `$wpdb->prepare()`.
 - Alt-pay quote rate limit: 5 per IP per minute. Each quote burns one HD index. HD addresses are never reused; cancelled invoices do not free the index.
 - Wallet network gate at four layers (see above).
 - Optional TOTP 2FA with recovery codes on the Payment Wallets and Asset Upgrades pages.
@@ -487,7 +488,7 @@ The distributable is the plugin folder zipped with `cardano-easy-mint/` as the t
 
 ```powershell
 # from the folder that contains cardano-easy-mint/
-& "C:\Program Files\7-Zip\7z.exe" a -tzip cardano-easy-mint-4.6.1.zip cardano-easy-mint\ `
+& "C:\Program Files\7-Zip\7z.exe" a -tzip cardano-easy-mint-4.6.2.zip cardano-easy-mint\ `
   -xr!.git -xr!.gitignore -xr!.distignore -xr!docs -xr!build -xr!*.zip
 ```
 

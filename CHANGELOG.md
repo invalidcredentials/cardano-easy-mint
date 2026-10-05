@@ -2,6 +2,54 @@
 
 All notable changes to **Cardano Easy Mint** are tracked here. Format follows [Keep a Changelog](https://keepachangelog.com/), and the project follows semantic versioning where the major number bumps on contract-breaking changes (REST shape, table shape, signing flow).
 
+## [4.6.2] - 2026-10-05
+
+Security release. **Every site running 4.6.1 or earlier should update.** No schema
+changes; build records live in `wp_options` and expire on their own.
+
+### Security
+- **The policy key signed any transaction a visitor sent.** The mint submit paths
+  (checkout AJAX, REST `/mint/submit`, and `/upgrade/submit`) passed the
+  client's transaction straight to the policy-key signer, so anyone holding the
+  public page nonce could get free mints, or a policy-wallet signature on a
+  transaction of their own. Every build is now recorded server-side by
+  transaction id (`MintBuildRegistry`). `AnvilAPI::submitTransaction()` refuses
+  to co-sign a mint without a matching record, and each record can be claimed
+  once, within 30 minutes. A failed submit puts the record back so the
+  customer can retry. The policy (which selects the signing key) and all
+  post-mint accounting (asset, quantity, wallet, invoice, discount) now come
+  from the build record instead of request fields.
+- **The checkout build took the merchant payout address from the browser.** It
+  now always uses the Merchant Wallet Address from Plugin Setup.
+- **Asset-upgrade re-mint didn't require a burn.** `/upgrade/build` with
+  `step=remint` minted a fresh copy of any registered asset to any address. A
+  re-mint now needs a burn of the same asset, by the same wallet, that was
+  accepted at submit, and each burn allows one re-mint. The metadata stash is
+  kept until the re-mint lands, so a declined signature can be retried.
+- **Alt-pay invoices** are now bound to the mint they were issued for, cover
+  exactly one asset, and are moved from `funded` to `consumed` atomically before
+  submit, so one payment can't back several builds.
+- **Discount codes** are now committed from the build record, so leaving the
+  redemption id out of the submit no longer keeps a single-use code reusable.
+  Discounted builds expire before their reservation can be released.
+- The checkout build rejects a `policy_id` that doesn't belong to the posted
+  asset.
+- The decrypted policy key is wiped with `sodium_memzero` after signing.
+
+### Fixed
+- Metadata strings over 64 bytes failed the Anvil build ("Max metadata string
+  too long"). `image`, `files[].src`, and the CIP-27 royalty `addr` are now split
+  into 64-byte chunks, as CIP-25 and CIP-27 allow, so CIDv1 IPFS links,
+  self-hosted image URLs, and base addresses mint. The royalty token
+  description is truncated to 64 bytes.
+- The BTC / ETH / SOL tabs on Payment Wallets used the PHP 8 nullsafe operator
+  and failed to parse on PHP 7.4.
+
+### Docs
+- README REST table and Security section corrected: auth on `/mint/*` is nonce
+  or API key, `/upgrade/*` routes are public, `/mint/build` has no
+  `discount_code`, and the key-at-rest description matches the code.
+
 ## [4.6.1] - 2026-09-03
 
 ### Changed

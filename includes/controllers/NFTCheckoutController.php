@@ -5,6 +5,8 @@ if (!defined('ABSPATH')) exit;
 
 use CardanoMintPay\Models\MintModel;
 use CardanoMintPay\Helpers\AnvilAPI;
+use CardanoMintPay\Helpers\MintBuildRegistry;
+use CardanoMintPay\Models\ChainInvoiceModel;
 use CardanoMintPay\Discounts\DiscountService;
 
 class NFTCheckoutController {
@@ -391,7 +393,8 @@ class NFTCheckoutController {
     public static function ajaxBuildMintTransaction() {
         check_ajax_referer('cardanocheckoutnonce', 'nonce');
 
-        $merchant_address = sanitize_text_field($_POST['merchant_address'] ?? '');
+        // The payout address is a site setting; never take it from the request.
+        $merchant_address = (string) get_option('cardano_mint_merchant_address', '');
         $customer_address = sanitize_text_field($_POST['customer_address'] ?? '');
         $policy_id = sanitize_text_field($_POST['policy_id'] ?? '');
         $asset_id = intval($_POST['asset_id'] ?? 0);
@@ -448,6 +451,16 @@ class NFTCheckoutController {
             cardanomint_log("ERROR: No mint data found for asset ID: " . $asset_id, 'error');
             wp_send_json_error(['message' => 'Asset not found']);
         }
+        // The posted policy must be this asset's policy: limits, discounts and
+        // the signing key are all looked up by it.
+        if (!empty($mint_data['policyid']) && $mint_data['policyid'] !== $policy_id) {
+            wp_send_json_error(['message' => 'Policy does not match this asset.']);
+        }
+        // Verbatim (bulk-imported) assets are 1-of-1; buildMintTransaction
+        // forces qty 1, so supply checks and accounting must agree.
+        if (($mint_data['metadata_mode'] ?? '') === 'verbatim') {
+            $quantity = 1;
+        }
 
         // Authoritative USD price comes from the mint record, NOT the client.
         // The live ADA conversion happens inside AnvilAPI::buildMintTransaction via getAdaPrice().
@@ -477,6 +490,11 @@ class NFTCheckoutController {
             if ($altpay_invoice['customer_cardano_address'] !== $customer_address) {
                 wp_send_json_error(['message' => 'Alt-pay invoice does not belong to this Cardano address.']);
             }
+            if ((int) $altpay_invoice['mint_id'] !== $asset_id) {
+                wp_send_json_error(['message' => 'Alt-pay invoice was issued for a different mint.']);
+            }
+            // An alt-pay invoice pays for exactly one asset.
+            $quantity = 1;
             $service_fee_ada = (float) get_option('cardano_mint_service_fee_ada', 5);
             if ($service_fee_ada < 2)  $service_fee_ada = 2;
             if ($service_fee_ada > 20) $service_fee_ada = 20;
@@ -550,6 +568,25 @@ class NFTCheckoutController {
             wp_send_json_error(['message' => $response->get_error_message()]);
         }
 
+        // Remember exactly what we built. Submit will only co-sign this tx,
+        // and takes its accounting from this record, not from the request.
+        $remembered = MintBuildRegistry::rememberBuild($response, [
+            'kind'                   => 'mint',
+            'policy_id'              => $policy_id,
+            'asset_id'               => $asset_id,
+            'quantity'               => $quantity,
+            'wallet'                 => $customer_address,
+            'invoice_id'             => $altpay_invoice ? $invoice_id : 0,
+            'discount_redemption_id' => $discount_redemption_id,
+        ], $discount_redemption_id > 0
+            // Expire before the sweeper can release the reservation, so a
+            // discounted tx can't be submitted once the code is free again.
+            ? (DiscountService::RESERVATION_TTL_MIN - 1) * MINUTE_IN_SECONDS
+            : MintBuildRegistry::TTL);
+        if (!$remembered) {
+            wp_send_json_error(['message' => 'Could not register the built transaction. Please try again.']);
+        }
+
         // DEBUG: Add price info and mint limits info to response for frontend debugging
         $response['debug_price_info'] = array(
             'usd_price_used'      => $usd_price,        // From DB (authoritative), post-discount.
@@ -581,19 +618,43 @@ class NFTCheckoutController {
 
         $transaction = sanitize_text_field($_POST['transaction'] ?? '');
         $signatures = json_decode(stripslashes($_POST['signatures'] ?? '[]'), true);
-        $policy_id = sanitize_text_field($_POST['policy_id'] ?? '');
-        $wallet_address = sanitize_text_field($_POST['wallet_address'] ?? '');
-        $asset_id = intval($_POST['asset_id'] ?? 0);
-        $quantity = max(1, min(5, intval($_POST['quantity'] ?? 1)));
 
-        if (!$transaction || !$policy_id || !$wallet_address) {
+        if (!$transaction) {
             wp_send_json_error(['message' => 'Missing required data']);
         }
 
-        // Submit transaction via Anvil API (pass policy_id for imported policy override)
-        $response = AnvilAPI::submitTransaction($transaction, $signatures, 'mint', $policy_id);
+        // Only a tx this site built gets the policy signature, and only once.
+        // Everything used for accounting below comes from the build record;
+        // the policy_id / asset_id / quantity / invoice / discount fields the
+        // client still posts are ignored.
+        $build = MintBuildRegistry::claim($transaction);
+        if ($build && ($build['kind'] ?? '') !== 'mint') {
+            MintBuildRegistry::release($build);
+            $build = null;
+        }
+        if (!$build) {
+            wp_send_json_error(['message' => 'This mint session expired or was already submitted. Please start the mint again.']);
+        }
+        $policy_id      = (string) $build['policy_id'];
+        $wallet_address = (string) $build['wallet'];
+        $asset_id       = (int) $build['asset_id'];
+        $quantity       = max(1, (int) $build['quantity']);
+        $invoice_id     = (int) ($build['invoice_id'] ?? 0);
+
+        // Alt-pay: spend the invoice before submitting so one payment can't
+        // back two mints. Put it back if the submit fails.
+        if ($invoice_id > 0 && !ChainInvoiceModel::consume_if_funded($invoice_id)) {
+            MintBuildRegistry::release($build);
+            wp_send_json_error(['message' => 'This alt-pay invoice has already been used.']);
+        }
+
+        $response = AnvilAPI::submitTransaction($transaction, $signatures, 'mint', $policy_id, $build);
 
         if (is_wp_error($response)) {
+            MintBuildRegistry::release($build);
+            if ($invoice_id > 0) {
+                ChainInvoiceModel::set_status($invoice_id, 'funded');
+            }
             wp_send_json_error(['message' => $response->get_error_message()]);
         }
 
@@ -640,21 +701,20 @@ class NFTCheckoutController {
                 cardanomint_log("ℹ️ Royalty token already marked as minted for policy: " . $policy_id);
             }
 
-            // Alt-pay: close out the invoice so it can't be reused for another mint.
-            $invoice_id = intval($_POST['invoice_id'] ?? 0);
-            if ($invoice_id > 0 && class_exists('CardanoMintPay\\Models\\ChainInvoiceModel')) {
-                \CardanoMintPay\Models\ChainInvoiceModel::set_status($invoice_id, 'consumed');
-                cardanomint_log("[AltPay] legacy submit: invoice $invoice_id marked consumed (tx $tx_hash)");
+            // Alt-pay: the invoice was already moved to 'consumed' above.
+            if ($invoice_id > 0) {
+                cardanomint_log("[AltPay] legacy submit: invoice $invoice_id consumed (tx $tx_hash)");
                 // Commit any discount reservation tied to this alt-pay invoice.
                 $dcommit = DiscountService::commit_for_invoice($invoice_id, $tx_hash);
                 cardanomint_log("[Discount] commit for invoice $invoice_id: " . ($dcommit ? 'ok' : 'none'));
             }
 
             // Discount: commit the reservation now that the mint is on-chain, so
-            // a single-use code is permanently spent. Wallet-bound + atomic, so a
-            // tampered id just no-ops. If the reservation expired (TTL) the price
-            // is already locked in the signed tx, so this is best-effort.
-            $discount_redemption_id = intval($_POST['discount_redemption_id'] ?? 0);
+            // a single-use code is permanently spent. The id comes from the build
+            // record, so omitting it from the request no longer skips the commit.
+            // If the reservation expired (TTL) the price is already locked in the
+            // signed tx, so this is best-effort.
+            $discount_redemption_id = (int) ($build['discount_redemption_id'] ?? 0);
             if ($discount_redemption_id > 0) {
                 $committed = DiscountService::commit($discount_redemption_id, $wallet_address, $tx_hash);
                 cardanomint_log("[Discount] commit redemption {$discount_redemption_id}: " . ($committed ? 'ok' : 'no-op'));

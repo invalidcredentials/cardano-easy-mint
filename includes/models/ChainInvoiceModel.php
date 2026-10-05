@@ -81,6 +81,19 @@ class ChainInvoiceModel {
     }
 
     /**
+     * Atomically move a funded invoice to 'consumed'. True only for the one
+     * request that flipped it, so a single payment can't back two mints.
+     */
+    public static function consume_if_funded(int $id): bool {
+        global $wpdb;
+        $tbl = self::table();
+        return 1 === (int) $wpdb->query($wpdb->prepare(
+            "UPDATE `$tbl` SET status = 'consumed' WHERE id = %d AND status = 'funded'",
+            $id
+        ));
+    }
+
+    /**
      * Find an existing pending invoice for the same {mint, chain, customer}
      * tuple that has not expired yet. Lets the quote endpoint be idempotent
      * across page reloads / closed modals so we don't burn a fresh HD

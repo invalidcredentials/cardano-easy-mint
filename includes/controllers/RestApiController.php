@@ -10,6 +10,7 @@ use CardanoMintPay\Models\MintModel;
 use CardanoMintPay\Models\ChainInvoiceModel;
 use CardanoMintPay\Helpers\AnvilAPI;
 use CardanoMintPay\Helpers\ApiKeys;
+use CardanoMintPay\Helpers\MintBuildRegistry;
 use CardanoMintPay\AltPay\AltPayService;
 
 if ( ! defined( 'ABSPATH' ) ) exit;
@@ -248,9 +249,15 @@ class RestApiController {
             }
         }
 
-        // Look up the mint data.
+        // Look up the mint data. An alt-pay invoice was issued for one specific
+        // asset, so it decides the asset; it must sit in the requested collection.
         $asset = null;
-        if ( $variant ) {
+        if ( $altpay_invoice ) {
+            $asset = MintModel::getMintById( (int) $altpay_invoice['mint_id'] );
+            if ( $asset && (int) ( $asset['collection_id'] ?? 0 ) !== $collection_id ) {
+                return new \WP_REST_Response( array( 'error' => 'Alt-pay invoice was issued for a different mint.' ), 400 );
+            }
+        } elseif ( $variant ) {
             $asset = MintModel::getAssetByCollectionAndVariant( $collection_id, $variant );
         } else {
             // Random weighted selection.
@@ -305,8 +312,22 @@ class RestApiController {
             return new \WP_REST_Response( array( 'error' => $result->get_error_message() ), 502 );
         }
 
-        // Echo back identifiers so the client can pass them to /mint/submit
-        // for post-mint accounting (decrement quantity, record per-wallet mint).
+        // Remember exactly what we built; /mint/submit only co-signs this tx
+        // and takes its accounting from this record.
+        $remembered = MintBuildRegistry::rememberBuild( $result, array(
+            'kind'       => 'mint',
+            'policy_id'  => $policy_id,
+            'asset_id'   => (int) $asset['id'],
+            'quantity'   => 1,
+            'wallet'     => $customer_address,
+            'invoice_id' => $altpay_invoice ? (int) $altpay_invoice['id'] : 0,
+        ) );
+        if ( ! $remembered ) {
+            return new \WP_REST_Response( array( 'error' => 'Could not register the built transaction. Please try again.' ), 502 );
+        }
+
+        // Echo back identifiers for the client's own display/bookkeeping.
+        // /mint/submit ignores them in favour of the build record.
         if ( is_array( $result ) ) {
             $result['asset_id']     = (int) $asset['id'];
             $result['collection_id'] = (int) ( $asset['collection_id'] ?? $collection_id );
@@ -327,12 +348,8 @@ class RestApiController {
     public static function mint_submit( \WP_REST_Request $request ): \WP_REST_Response {
         $params = $request->get_json_params();
 
-        $transaction     = $params['transaction'] ?? '';
+        $transaction     = is_string( $params['transaction'] ?? null ) ? $params['transaction'] : '';
         $witnesses       = $params['witnesses'] ?? array();
-        $policy_id       = sanitize_text_field( $params['policy_id'] ?? '' );
-        $asset_id        = (int) ( $params['asset_id'] ?? 0 );
-        $wallet_address  = sanitize_text_field( $params['wallet_address'] ?? '' );
-        $invoice_id      = (int) ( $params['invoice_id'] ?? 0 );
 
         if ( empty( $transaction ) ) {
             return new \WP_REST_Response( array( 'error' => 'Transaction data is required.' ), 400 );
@@ -342,11 +359,35 @@ class RestApiController {
             $witnesses = array( $witnesses );
         }
 
+        // Only a tx /mint/build produced gets the policy signature, and only
+        // once. Accounting comes from the build record, not from the request.
+        $build = MintBuildRegistry::claim( $transaction );
+        if ( $build && ( $build['kind'] ?? '' ) !== 'mint' ) {
+            MintBuildRegistry::release( $build );
+            $build = null;
+        }
+        if ( ! $build ) {
+            return new \WP_REST_Response( array( 'error' => 'This mint session expired or was already submitted. Please start again.' ), 409 );
+        }
+        $policy_id      = (string) $build['policy_id'];
+        $asset_id       = (int) $build['asset_id'];
+        $wallet_address = (string) $build['wallet'];
+        $invoice_id     = (int) ( $build['invoice_id'] ?? 0 );
+
+        // Spend the alt-pay invoice before submitting; restore it on failure.
+        if ( $invoice_id > 0 && ! ChainInvoiceModel::consume_if_funded( $invoice_id ) ) {
+            MintBuildRegistry::release( $build );
+            return new \WP_REST_Response( array( 'error' => 'This alt-pay invoice has already been used.' ), 409 );
+        }
+
         // Submit via Anvil — this adds the policy wallet signature server-side.
-        // Pass policy_id for imported policy skey override.
-        $result = AnvilAPI::submitTransaction( $transaction, $witnesses, 'mint', $policy_id );
+        $result = AnvilAPI::submitTransaction( $transaction, $witnesses, 'mint', $policy_id, $build );
 
         if ( is_wp_error( $result ) ) {
+            MintBuildRegistry::release( $build );
+            if ( $invoice_id > 0 ) {
+                ChainInvoiceModel::set_status( $invoice_id, 'funded' );
+            }
             return new \WP_REST_Response( array( 'error' => $result->get_error_message() ), 502 );
         }
 
@@ -372,8 +413,7 @@ class RestApiController {
             }
 
             if ( $invoice_id > 0 ) {
-                ChainInvoiceModel::set_status( $invoice_id, 'consumed' );
-                cardanomint_log( '[CardanoMint AltPay] invoice ' . $invoice_id . ' marked consumed (tx ' . $tx_hash . ')' );
+                cardanomint_log( '[CardanoMint AltPay] invoice ' . $invoice_id . ' consumed (tx ' . $tx_hash . ')' );
             }
         }
 
