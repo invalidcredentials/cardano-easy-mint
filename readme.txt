@@ -1,6 +1,6 @@
 === Cardano Easy Mint ===
 Contributors: invalidcredentials
-Tags: cardano, nft, minting, crypto, payments, bitcoin, ethereum, solana, web3
+Tags: cardano, nft, minting, crypto, payments
 Requires at least: 5.0
 Tested up to: 7.0
 Requires PHP: 7.4
@@ -8,7 +8,7 @@ Stable tag: 4.6.3
 License: AGPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/agpl-3.0.html
 
-Mint Cardano NFTs from WordPress. Native CIP-30 wallet connect, ADA / BTC / ETH / SOL / card payments, discount codes, and burn-and-re-mint metadata upgrades.
+Mint Cardano NFTs from WordPress: CIP-30 wallet connect, ADA / BTC / ETH / SOL / card payments, discount codes, and metadata upgrades.
 
 == Description ==
 
@@ -70,6 +70,7 @@ See CHANGELOG.md in the plugin folder for the full history.
 = 4.6.3 =
 * Ready-to-install cardano-easy-mint.zip on the main branch and on every release.
 * Admin copy and example placeholders cleaned up; internal planning docs removed from the repository.
+* WordPress Plugin Check and PHP 7.4 compatibility pass: admin output escaping, gmdate/wp_parse_url, text domain matches the slug.
 
 = 4.6.2 =
 * Security: the policy key now only co-signs a transaction this site built, once. Forged or replayed transactions are refused on every submit path (checkout, REST/widget, asset upgrade).

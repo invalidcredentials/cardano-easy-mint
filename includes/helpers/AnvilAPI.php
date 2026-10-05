@@ -765,7 +765,7 @@ class AnvilAPI {
         
         // Set default expiration to 1 year from now if not provided
         if (empty($expiration_date)) {
-            $expiration_date = date('Y-m-d\TH:i:s\Z', strtotime('+1 year'));
+            $expiration_date = gmdate('Y-m-d\TH:i:s\Z', strtotime('+1 year'));
         }
         
         cardanomint_log('Expiration date: ' . $expiration_date);

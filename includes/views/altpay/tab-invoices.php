@@ -52,7 +52,7 @@ $chain_options = ['' => 'Any chain', 'btc' => 'BTC', 'eth' => 'ETH', 'sol' => 'S
             </select>
         </label>
         <label>Mint ID<br>
-            <input type="number" name="flt_mint_id" value="<?php echo $filters['mint_id'] ?: ''; ?>" min="1" style="width:110px;">
+            <input type="number" name="flt_mint_id" value="<?php echo $filters['mint_id'] ? (int) $filters['mint_id'] : ''; ?>" min="1" style="width:110px;">
         </label>
         <button type="submit" class="button">Filter</button>
         <a class="button" href="<?php echo esc_url(AltPayAdminController::pageUrl(['tab' => 'invoices'])); ?>">Reset</a>

@@ -120,7 +120,7 @@ class DiscountAdminController {
 
         $uses_per_code = max(0, intval($_POST['uses_per_code'] ?? 1));
         $expires_at = trim((string) ($_POST['expires_at'] ?? ''));
-        $expires_at = $expires_at !== '' ? date('Y-m-d H:i:s', strtotime($expires_at)) : null;
+        $expires_at = $expires_at !== '' ? gmdate('Y-m-d H:i:s', strtotime($expires_at)) : null;
 
         $campaign_id = DiscountModel::create_campaign([
             'title'         => $title,

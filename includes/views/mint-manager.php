@@ -76,7 +76,7 @@ if ($editMode && $editData) {
                             <?php
                             echo esc_html($policy['title']) . ' - ' .
                                  esc_html(substr($policy['policyid'], 0, 20)) . '... - ' .
-                                 'Expires: ' . esc_html(date('Y-m-d', strtotime($policy['expirationdate']))) .
+                                 'Expires: ' . esc_html(gmdate('Y-m-d', strtotime($policy['expirationdate']))) .
                                  ' (' . esc_html($policy['asset_count']) . ' asset' . ($policy['asset_count'] != 1 ? 's' : '') . ')';
                             ?>
                         </option>
@@ -96,7 +96,7 @@ if ($editMode && $editData) {
                             <?php
                             echo '(imported) ' . esc_html($imp['name']) . ' - ' .
                                  esc_html(substr($imp['policy_id'], 0, 20)) . '...' .
-                                 ($imp['expiration_date'] ? ' - Expires: ' . esc_html(date('Y-m-d', strtotime($imp['expiration_date']))) : '');
+                                 ($imp['expiration_date'] ? ' - Expires: ' . esc_html(gmdate('Y-m-d', strtotime($imp['expiration_date']))) : '');
                             ?>
                         </option>
                     <?php endforeach; ?>
@@ -568,7 +568,7 @@ if ($editMode && $editData) {
 <script>
 (function(){
     var parsed = [], page = 0, perPage = 25;
-    var nonce = '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>';
+    var nonce = '<?php echo esc_js(wp_create_nonce('cardanocheckoutnonce')); ?>';
 
     window.cemTogglePath = function(){
         var sel = document.querySelector('input[name=cem_path]:checked');
@@ -1141,11 +1141,11 @@ jQuery(document).ready(function($) {
         $('#pin-status').html('<span style="color: #999;">Uploading to IPFS...</span>');
 
         $.ajax({
-            url: '<?php echo admin_url('admin-ajax.php'); ?>',
+            url: '<?php echo esc_url(admin_url('admin-ajax.php')); ?>',
             type: 'POST',
             data: {
                 action: 'cardano_pin_to_ipfs',
-                nonce: '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>',
+                nonce: '<?php echo esc_js(wp_create_nonce('cardanocheckoutnonce')); ?>',
                 image_id: imageId,
                 name: assetName
             },
@@ -1286,7 +1286,7 @@ jQuery(document).ready(function($) {
             type: 'POST',
             data: {
                 action: 'cardano_generate_policy',
-                nonce: '<?php echo wp_create_nonce('cardanomint_generate_policy'); ?>',
+                nonce: '<?php echo esc_js(wp_create_nonce('cardanomint_generate_policy')); ?>',
                 expiration_date: expirationISO
             },
             success: function(response) {
@@ -1337,7 +1337,7 @@ jQuery(document).ready(function($) {
     // Initialize metadata rows
     <?php if ($editMode && $editData && !empty($editData['nft_metadata'])): ?>
         // Edit mode - load existing metadata
-        const existingMetadata = <?php echo $editData['nft_metadata'] ?: '{}'; ?>;
+        const existingMetadata = <?php echo wp_json_encode(json_decode((string) ($editData['nft_metadata'] ?: '{}'), true) ?: new stdClass(), JSON_HEX_TAG | JSON_HEX_AMP); ?>;
         if (existingMetadata && typeof existingMetadata === 'object') {
             for (const [key, value] of Object.entries(existingMetadata)) {
                 addMetadataRow(key, value);

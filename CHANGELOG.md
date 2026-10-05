@@ -19,6 +19,21 @@ Housekeeping. No code-path changes.
   "Download ZIP" button. The alt-chain crypto credit now says the code follows
   `simplito/elliptic-php` and `kornrunner/keccak` rather than vendoring them.
 
+### Fixed (WordPress Plugin Check / PHPCompatibility pass)
+- Admin views escape everything they print into HTML and inline scripts: nonces
+  (`esc_js`), admin URLs (`esc_url`), counters, filters and mnemonic words. Stored
+  NFT metadata is re-encoded with `wp_json_encode(..., JSON_HEX_TAG)` before it is
+  printed into the Mint Manager script, so imported metadata containing
+  `</script>` can't break out of it.
+- `date()` replaced with `gmdate()` (same output under WordPress, which runs PHP in
+  UTC) and `parse_url()` with `wp_parse_url()`.
+- Plugin header `Text Domain` is now `cardano-easy-mint` (matches the slug);
+  readme.txt has 5 tags and a short description under 150 characters.
+- Checked with Plugin Check (74 errors down to 41; the rest are prepared queries
+  built in variables, exception messages, the Widget Deployer's embed snippet, the
+  CSV export stream, and Pinata's multipart upload over cURL) and with
+  PHPCompatibilityWP for PHP 7.4+ (clean).
+
 ### Removed
 - `docs/` (internal build plans, decision placeholders and superseded launch notes).
   Their still-relevant content is in this changelog and the README.

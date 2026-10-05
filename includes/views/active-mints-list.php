@@ -251,7 +251,7 @@ foreach ($mints as $mint) {
                             </button>
                         </h3>
                         <div class="policy-meta">
-                            Expires: <?php echo esc_html(date('F j, Y g:i A', strtotime($policy['expirationdate']))); ?>
+                            Expires: <?php echo esc_html(gmdate('F j, Y g:i A', strtotime($policy['expirationdate']))); ?>
                             <?php if ($policy['unlimited']): ?>
                                 | <span style="color: #53eb8e;">Unlimited Minting</span>
                             <?php endif; ?>
@@ -679,9 +679,9 @@ foreach ($mints as $mint) {
 <script>
 // WordPress AJAX nonces for mint tracking
 const cardanoMintNonces = {
-    export: '<?php echo wp_create_nonce('cardano_export_mint_history'); ?>',
-    import: '<?php echo wp_create_nonce('cardano_import_mint_whitelist'); ?>',
-    history: '<?php echo wp_create_nonce('cardano_get_mint_history'); ?>'
+    export: '<?php echo esc_js(wp_create_nonce('cardano_export_mint_history')); ?>',
+    import: '<?php echo esc_js(wp_create_nonce('cardano_import_mint_whitelist')); ?>',
+    history: '<?php echo esc_js(wp_create_nonce('cardano_get_mint_history')); ?>'
 };
 
 function togglePolicy(policyId) {
@@ -1003,7 +1003,7 @@ function archivePolicy(policyId, policyTitle) {
 
     const formData = new FormData();
     formData.append('action', 'cardano_archive_policy');
-    formData.append('nonce', '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>');
+    formData.append('nonce', '<?php echo esc_js(wp_create_nonce('cardanocheckoutnonce')); ?>');
     formData.append('policy_id', policyId);
 
     fetch(ajaxurl, {
@@ -1032,7 +1032,7 @@ function unarchivePolicy(policyId, policyTitle) {
 
     const formData = new FormData();
     formData.append('action', 'cardano_unarchive_policy');
-    formData.append('nonce', '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>');
+    formData.append('nonce', '<?php echo esc_js(wp_create_nonce('cardanocheckoutnonce')); ?>');
     formData.append('policy_id', policyId);
 
     fetch(ajaxurl, {

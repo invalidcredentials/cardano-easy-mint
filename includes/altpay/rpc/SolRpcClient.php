@@ -92,7 +92,7 @@ class SolRpcClient {
         $body = json_decode($bodyRaw, true);
         if (!is_array($body)) {
             cardanomint_log('[CardanoMint AltPay] SOL RPC returned non-JSON: ' . substr($bodyRaw, 0, 400));
-            return ['__error' => 'non-JSON response from ' . parse_url($url, PHP_URL_HOST)];
+            return ['__error' => 'non-JSON response from ' . wp_parse_url($url, PHP_URL_HOST)];
         }
         if (isset($body['error'])) {
             $err = $body['error'];

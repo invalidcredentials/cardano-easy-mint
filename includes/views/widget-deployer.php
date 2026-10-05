@@ -5,7 +5,7 @@
     <?php settings_errors( 'cardano_mint_settings' ); ?>
 
     <div class="notice notice-info" style="max-width:870px;">
-        <p>Use the Widget Deployer only if you are deploying to an outside server/site (like a video game). If you want to deploy a minting widget on your WordPress website, go to <a href="<?php echo admin_url('admin.php?page=cardano-mint-how-to-use'); ?>">How to Use</a>.</p>
+        <p>Use the Widget Deployer only if you are deploying to an outside server/site (like a video game). If you want to deploy a minting widget on your WordPress website, go to <a href="<?php echo esc_url(admin_url('admin.php?page=cardano-mint-how-to-use')); ?>">How to Use</a>.</p>
     </div>
 
     <!-- Panel 1: API Keys -->
@@ -180,7 +180,7 @@
 
 <script>
 (function() {
-    var nonce = '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>';
+    var nonce = '<?php echo esc_js(wp_create_nonce('cardanocheckoutnonce')); ?>';
 
     // Generate API Key
     document.getElementById('cm-generate-key').addEventListener('click', function() {

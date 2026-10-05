@@ -95,7 +95,7 @@ if ($existing_wallet && current_user_can('manage_options')) {
                 $words = explode(' ', $mnemonic);
                 $chunks = array_chunk($words, 6);
                 foreach ($chunks as $chunk) {
-                    echo implode('  ', $chunk) . '<br>';
+                    echo esc_html(implode('  ', $chunk)) . '<br>';
                 }
                 ?>
             </div>
@@ -317,7 +317,7 @@ if ($existing_wallet && current_user_can('manage_options')) {
                         <tr>
                             <th><label for="import-seed-expiry">Policy Expiration</label></th>
                             <td>
-                                <input type="datetime-local" id="import-seed-expiry" value="<?php echo esc_attr(date('Y-m-d\TH:i', strtotime('+1 year'))); ?>">
+                                <input type="datetime-local" id="import-seed-expiry" value="<?php echo esc_attr(gmdate('Y-m-d\TH:i', strtotime('+1 year'))); ?>">
                                 <p class="description">When this policy expires and minting is no longer allowed. Default: 1 year.</p>
                             </td>
                         </tr>
@@ -483,7 +483,7 @@ if ($existing_wallet && current_user_can('manage_options')) {
 
         var formData = new FormData();
         formData.append('action', 'cardano_mint_import_mnemonic');
-        formData.append('nonce', '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>');
+        formData.append('nonce', '<?php echo esc_js(wp_create_nonce('cardanocheckoutnonce')); ?>');
         formData.append('name', name);
         formData.append('mnemonic', mnemonic);
         formData.append('expiration_date', expiry);
@@ -526,7 +526,7 @@ if ($existing_wallet && current_user_can('manage_options')) {
 
         var formData = new FormData();
         formData.append('action', 'cardano_mint_import_skey');
-        formData.append('nonce', '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>');
+        formData.append('nonce', '<?php echo esc_js(wp_create_nonce('cardanocheckoutnonce')); ?>');
         formData.append('name', name);
         formData.append('skey', skey);
         formData.append('script', script);
@@ -572,7 +572,7 @@ if ($existing_wallet && current_user_can('manage_options')) {
 
         var formData = new FormData();
         formData.append('action', 'cardano_mint_import_manual');
-        formData.append('nonce', '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>');
+        formData.append('nonce', '<?php echo esc_js(wp_create_nonce('cardanocheckoutnonce')); ?>');
         formData.append('name', name);
         formData.append('policy_id', policyId);
         formData.append('skey', skey);
@@ -639,7 +639,7 @@ if ($existing_wallet && current_user_can('manage_options')) {
                             <strong>Policies:</strong> <?php echo esc_html($policy_count); ?>
                         </div>
                         <div>
-                            <strong>Archived:</strong> <?php echo esc_html($wallet['archived_at'] ? date('M j, Y', strtotime($wallet['archived_at'])) : 'N/A'); ?>
+                            <strong>Archived:</strong> <?php echo esc_html($wallet['archived_at'] ? gmdate('M j, Y', strtotime($wallet['archived_at'])) : 'N/A'); ?>
                         </div>
                     </div>
 
@@ -697,7 +697,7 @@ function archivePolicyWallet(walletId, walletName) {
 
     const formData = new FormData();
     formData.append('action', 'cardano_archive_policy_wallet');
-    formData.append('nonce', '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>');
+    formData.append('nonce', '<?php echo esc_js(wp_create_nonce('cardanocheckoutnonce')); ?>');
     formData.append('wallet_id', walletId);
 
     fetch(ajaxurl, {
@@ -727,7 +727,7 @@ function unarchivePolicyWallet(walletId, walletName) {
 
     const formData = new FormData();
     formData.append('action', 'cardano_unarchive_policy_wallet');
-    formData.append('nonce', '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>');
+    formData.append('nonce', '<?php echo esc_js(wp_create_nonce('cardanocheckoutnonce')); ?>');
     formData.append('wallet_id', walletId);
 
     fetch(ajaxurl, {
@@ -753,7 +753,7 @@ function unarchivePolicyWallet(walletId, walletName) {
 function deleteArchivedWallet(walletId) {
     const formData = new FormData();
     formData.append('action', 'delete_policy_wallet');
-    formData.append('nonce', '<?php echo wp_create_nonce('cardano_delete_policy_wallet'); ?>');
+    formData.append('nonce', '<?php echo esc_js(wp_create_nonce('cardano_delete_policy_wallet')); ?>');
     formData.append('wallet_id', walletId);
 
     fetch(ajaxurl, {

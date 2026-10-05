@@ -169,8 +169,8 @@ function dash_format_minor(string $chain, $minor): string {
                 </div>
                 <?php if ($c !== 'ada'): ?>
                     <div style="margin-top:12px; display:flex; gap:14px; font-size:12px; color:#555;">
-                        <span><strong style="color:#222;"><?php echo $sum['pending']; ?></strong> pending invoice<?php echo $sum['pending'] === 1 ? '' : 's'; ?></span>
-                        <span><strong style="color:#222;"><?php echo $sum['consumed']; ?></strong> minted</span>
+                        <span><strong style="color:#222;"><?php echo (int) $sum['pending']; ?></strong> pending invoice<?php echo $sum['pending'] === 1 ? '' : 's'; ?></span>
+                        <span><strong style="color:#222;"><?php echo (int) $sum['consumed']; ?></strong> minted</span>
                     </div>
                 <?php endif; ?>
             </div>

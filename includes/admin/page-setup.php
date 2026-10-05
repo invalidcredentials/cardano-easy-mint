@@ -158,9 +158,9 @@ function cardanomint_setup_page() {
                 
                 const formData = new FormData();
                 formData.append('action', 'cardano_test_anvil_api');
-                formData.append('nonce', '<?php echo wp_create_nonce('cardanocheckoutnonce'); ?>');
+                formData.append('nonce', '<?php echo esc_js(wp_create_nonce('cardanocheckoutnonce')); ?>');
                 
-                fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+                fetch('<?php echo esc_url(admin_url('admin-ajax.php')); ?>', {
                     method: 'POST',
                     body: formData
                 })

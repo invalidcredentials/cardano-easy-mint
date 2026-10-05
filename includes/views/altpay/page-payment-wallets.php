@@ -47,7 +47,7 @@ $tabs = [
             $url = $base_url . '&tab=' . urlencode($key);
             $active = $tab === $key ? ' nav-tab-active' : '';
         ?>
-            <a href="<?php echo esc_url($url); ?>" class="nav-tab<?php echo $active; ?>"><?php echo esc_html($label); ?></a>
+            <a href="<?php echo esc_url($url); ?>" class="nav-tab<?php echo esc_attr($active); ?>"><?php echo esc_html($label); ?></a>
         <?php endforeach; ?>
     </h2>
 
