@@ -31,10 +31,10 @@ if ($mint && !empty($mint['collection_image_id'])) {
 if (empty($nft_image_url) && $mint) {
     if (!empty($mint['ipfs_cid_manual'])) {
         // Manual IPFS hash
-        $nft_image_url = 'https://ipfs.io/ipfs/' . $mint['ipfs_cid_manual'];
+        $nft_image_url = 'https://ipfs.blockfrost.dev/ipfs/' . $mint['ipfs_cid_manual'];
     } elseif (!empty($mint['ipfs_cid'])) {
         // Pinata IPFS hash
-        $nft_image_url = 'https://ipfs.io/ipfs/' . $mint['ipfs_cid'];
+        $nft_image_url = 'https://ipfs.blockfrost.dev/ipfs/' . $mint['ipfs_cid'];
     } elseif (!empty($mint['image_id'])) {
         // WordPress media library
         $image_url = wp_get_attachment_url($mint['image_id']);
