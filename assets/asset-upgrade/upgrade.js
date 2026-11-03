@@ -356,7 +356,7 @@
 
     function ipfsToHttp(uri) {
         if (typeof uri !== 'string' || !uri) return '';
-        if (uri.indexOf('ipfs://') === 0) return 'https://ipfs.io/ipfs/' + uri.slice(7);
+        if (uri.indexOf('ipfs://') === 0) return 'https://ipfs.blockfrost.dev/ipfs/' + uri.slice(7);
         return uri;
     }
 

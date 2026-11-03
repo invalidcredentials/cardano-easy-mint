@@ -585,7 +585,7 @@ if ($editMode && $editData) {
         var panel = document.getElementById('cem-import-panel'); if(panel) panel.style.display = importMode ? 'block' : 'none';
     };
 
-    function ipfs(u){ return (typeof u==='string' && u.indexOf('ipfs://')===0) ? 'https://ipfs.io/ipfs/'+u.slice(7) : (u||''); }
+    function ipfs(u){ return (typeof u==='string' && u.indexOf('ipfs://')===0) ? 'https://ipfs.blockfrost.dev/ipfs/'+u.slice(7) : (u||''); }
     function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
     function byteLen(s){ return unescape(encodeURIComponent(s)).length; }
 
@@ -968,7 +968,7 @@ jQuery(document).ready(function($) {
         var ok = /^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(hash);
         if (ok) {
             $msg.css('color', '#10b981').html('✓ Valid CIDv0 hash').show();
-            $img.attr('src', 'https://ipfs.io/ipfs/' + hash);
+            $img.attr('src', 'https://ipfs.blockfrost.dev/ipfs/' + hash);
             $box.show();
         } else {
             $msg.css('color', '#ef4444').html('✗ Invalid CIDv0 — must start with Qm and be 46 chars').show();
@@ -1061,7 +1061,7 @@ jQuery(document).ready(function($) {
                 .show();
 
             // Load IPFS preview image
-            const ipfsGateway = 'https://ipfs.io/ipfs/';
+            const ipfsGateway = 'https://ipfs.blockfrost.dev/ipfs/';
             const imageUrl = ipfsGateway + hash;
 
             // Show preview container and set image source
@@ -1224,7 +1224,7 @@ jQuery(document).ready(function($) {
     // Load IPFS preview if manual hash exists (edit mode)
     const existingManualHash = $('#ipfs_cid_manual').val().trim();
     if (existingManualHash && validateIPFSHash(existingManualHash)) {
-        const ipfsGateway = 'https://ipfs.io/ipfs/';
+        const ipfsGateway = 'https://ipfs.blockfrost.dev/ipfs/';
         const imageUrl = ipfsGateway + existingManualHash;
         $('#ipfs-manual-preview-img').attr('src', imageUrl);
         $('#ipfs-manual-preview').show();

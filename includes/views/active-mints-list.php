@@ -331,10 +331,10 @@ foreach ($mints as $mint) {
 
                                         // Priority: Manual IPFS > Pinata IPFS > WordPress
                                         if (!empty($asset['ipfs_cid_manual'])) {
-                                            $display_image_url = 'https://ipfs.io/ipfs/' . $asset['ipfs_cid_manual'];
+                                            $display_image_url = 'https://ipfs.blockfrost.dev/ipfs/' . $asset['ipfs_cid_manual'];
                                             $border_color = '#7c3aed'; // Purple for manual IPFS
                                         } elseif (!empty($asset['ipfs_cid'])) {
-                                            $display_image_url = 'https://ipfs.io/ipfs/' . $asset['ipfs_cid'];
+                                            $display_image_url = 'https://ipfs.blockfrost.dev/ipfs/' . $asset['ipfs_cid'];
                                             $border_color = '#10b981'; // Green for Pinata
                                         } elseif (!empty($asset['image_id'])) {
                                             $display_image_url = wp_get_attachment_url($asset['image_id']);
@@ -348,7 +348,7 @@ foreach ($mints as $mint) {
                                                 // CIP-25 image may be a single string or an array of <=64-char chunks.
                                                 $img_uri = is_array($meta_for_img['image']) ? implode('', $meta_for_img['image']) : (string) $meta_for_img['image'];
                                                 $display_image_url = (strpos($img_uri, 'ipfs://') === 0)
-                                                    ? 'https://ipfs.io/ipfs/' . substr($img_uri, 7)
+                                                    ? 'https://ipfs.blockfrost.dev/ipfs/' . substr($img_uri, 7)
                                                     : $img_uri;
                                                 if (!empty($meta_for_img['mediaType'])) {
                                                     $display_image_mime = (string) $meta_for_img['mediaType'];

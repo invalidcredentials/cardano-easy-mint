@@ -125,7 +125,7 @@
 
     function resolveIpfs(url) {
         if (!url) return '';
-        if (url.indexOf('ipfs://') === 0) return 'https://ipfs.io/ipfs/' + url.substring(7);
+        if (url.indexOf('ipfs://') === 0) return 'https://ipfs.blockfrost.dev/ipfs/' + url.substring(7);
         return url;
     }
 
